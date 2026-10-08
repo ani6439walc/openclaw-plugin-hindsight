@@ -965,7 +965,7 @@ const RUNTIME_OPAQUE_SENDER_PREFIX_RE = /^\s*(?:om|ou|oc)_[A-Za-z0-9_-]+\s*:\s*/
 // heuristic would eat ordinary user text ("计划: 今天修 retain 污染"), so the
 // pattern is operator-supplied. Unset = byte-identical to the old behaviour.
 // One process-global compiled pattern, armed from getPluginConfig(): the host
-// holds a single hindsight-openclaw config, so every session in the process
+// holds a single hindsight config, so every session in the process
 // shares it. Compile per config if that ever stops being true.
 let senderPrefixRe: RegExp | undefined;
 let senderPrefixSource: string | undefined;
@@ -1770,10 +1770,10 @@ export function detectLLMConfig(pluginConfig?: PluginConfig): {
     throw new Error(
       `No LLM provider configured for the Hindsight memory plugin.\n\n` +
         `Set the provider via 'openclaw config set':\n` +
-        `  openclaw config set plugins.entries.hindsight-openclaw.config.llmProvider openai\n\n` +
+        `  openclaw config set plugins.entries.hindsight.config.llmProvider openai\n\n` +
         `For providers that need an API key, configure it as a SecretRef so the value\n` +
         `is read from an env var (or file/exec source) at runtime instead of stored in plain text:\n` +
-        `  openclaw config set plugins.entries.hindsight-openclaw.config.llmApiKey \\\n` +
+        `  openclaw config set plugins.entries.hindsight.config.llmApiKey \\\n` +
         `      --ref-source env --ref-provider default --ref-id OPENAI_API_KEY\n\n` +
         `Providers that don't need an API key: ${[...NO_KEY_REQUIRED_PROVIDERS].join(", ")}.\n` +
         `Or point the plugin at an external Hindsight API by setting hindsightApiUrl instead.`
@@ -1785,7 +1785,7 @@ export function detectLLMConfig(pluginConfig?: PluginConfig): {
     throw new Error(
       `llmProvider is set to "${provider}" but llmApiKey is empty.\n\n` +
         `Configure it via 'openclaw config set' as a SecretRef:\n` +
-        `  openclaw config set plugins.entries.hindsight-openclaw.config.llmApiKey \\\n` +
+        `  openclaw config set plugins.entries.hindsight.config.llmApiKey \\\n` +
         `      --ref-source env --ref-provider default --ref-id OPENAI_API_KEY`
     );
   }
@@ -2116,7 +2116,7 @@ export function normalizeRetainTags(value: unknown): string[] {
 }
 
 export function getPluginConfig(api: MoltbotPluginAPI): PluginConfig {
-  const config = api.config.plugins?.entries?.["hindsight-openclaw"]?.config || {};
+  const config = api.config.plugins?.entries?.["hindsight"]?.config || {};
 
   const senderPrefixPattern =
     typeof config.senderPrefixPattern === "string" && config.senderPrefixPattern.trim().length > 0

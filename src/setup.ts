@@ -481,7 +481,7 @@ async function runInteractive(
       "",
       "Secrets were stored inline in openclaw.json. To reference an env var",
       "instead (recommended for CI/production), use:",
-      "  openclaw config set plugins.entries.hindsight-openclaw.config.hindsightApiToken \\",
+      "  openclaw config set plugins.entries.hindsight.config.hindsightApiToken \\",
       "      --ref-source env --ref-id HINDSIGHT_CLOUD_TOKEN",
     ].join("\n"),
     "Hindsight Memory configured"

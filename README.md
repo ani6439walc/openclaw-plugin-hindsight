@@ -11,8 +11,8 @@ The Hindsight engine and SDK dependencies remain upstream packages. See
 [UPSTREAM.md](UPSTREAM.md) for the exact source revision and update procedure.
 Original code is copyright Vectorize AI, Inc., licensed under [MIT](LICENSE).
 
-The package name is `@ani6439walc/hindsight-openclaw`; the OpenClaw plugin ID stays
-`hindsight-openclaw`. Use this fork **in place of** the official integration, not
+The package name is `@ani6439walc/hindsight-openclaw`; the OpenClaw plugin ID is
+`hindsight`. Use this fork **in place of** the official integration, not
 alongside it. This README does not assume the fork is published to npm.
 
 ## Quick Start
@@ -41,7 +41,7 @@ For an existing official installation, first save your OpenClaw configuration an
 stop the gateway. On OpenClaw versions supporting `plugins install --force`, use
 `openclaw plugins install --force ./ani6439walc-hindsight-openclaw-0.13.0-discord.1.tgz`
 to replace the existing plugin. Check `openclaw plugins install --help` for your
-installed version, verify `plugins.entries.hindsight-openclaw.config`, then restart
+installed version, verify `plugins.entries.hindsight.config`, then restart
 the gateway. Existing installations do not need to rerun the setup wizard. Installing
 or replacing the plugin is a separate operator action; building this repository
 does not change a running OpenClaw installation.
@@ -61,6 +61,10 @@ prevent recall.
 - **Embedded daemon** — spawns a local `hindsight-embed` daemon on this machine. Prompts for the LLM provider (OpenAI / Anthropic / Gemini / Groq / Claude Code / Codex / Ollama) and its API key.
 
 The interactive wizard stores credentials **inline** in `openclaw.json` for simplicity — the value is masked as you paste it. For CI / production you can store credentials as a `SecretRef` (resolved from an env var, file, or exec source at startup) by using the non-interactive flags with `--token-env` / `--api-key-env`, or by switching an existing field afterwards with `openclaw config set ... --ref-source env --ref-id …`.
+
+The plugin ID is `hindsight`; migrate the previous entry, allow/deny references,
+and memory slot from `hindsight-openclaw` when upgrading. The npm package, CLI
+commands, and `hindsight-openclaw.recall` event stream keep their existing names.
 
 ### Recall progress event contract
 
@@ -92,16 +96,16 @@ The wizard is a convenience wrapper — all of the same fields can be set direct
 
 ```bash
 # Embedded daemon with OpenAI
-openclaw config set plugins.entries.hindsight-openclaw.config.llmProvider openai
-openclaw config set plugins.entries.hindsight-openclaw.config.llmApiKey \
+openclaw config set plugins.entries.hindsight.config.llmProvider openai
+openclaw config set plugins.entries.hindsight.config.llmApiKey \
     --ref-source env --ref-provider default --ref-id OPENAI_API_KEY
 
 # Or: Claude Code (no API key needed)
-openclaw config set plugins.entries.hindsight-openclaw.config.llmProvider claude-code
+openclaw config set plugins.entries.hindsight.config.llmProvider claude-code
 
 # Or: point at an external Hindsight API
-openclaw config set plugins.entries.hindsight-openclaw.config.hindsightApiUrl https://mcp.hindsight.example.com
-openclaw config set plugins.entries.hindsight-openclaw.config.hindsightApiToken \
+openclaw config set plugins.entries.hindsight.config.hindsightApiUrl https://mcp.hindsight.example.com
+openclaw config set plugins.entries.hindsight.config.hindsightApiToken \
     --ref-source env --ref-id HINDSIGHT_API_TOKEN
 ```
 
@@ -113,14 +117,14 @@ previously came from shell env vars must now go through OpenClaw's plugin config
 
 | Old (0.5.x)                              | New (0.6.0)                                                                                                                                                                                                |
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY=…` (auto-detected)       | `openclaw config set plugins.entries.hindsight-openclaw.config.llmProvider openai` <br> `openclaw config set plugins.entries.hindsight-openclaw.config.llmApiKey --ref-source env --ref-id OPENAI_API_KEY` |
-| `HINDSIGHT_API_LLM_PROVIDER=…`           | `openclaw config set plugins.entries.hindsight-openclaw.config.llmProvider …`                                                                                                                              |
-| `HINDSIGHT_API_LLM_MODEL=…`              | `openclaw config set plugins.entries.hindsight-openclaw.config.llmModel …`                                                                                                                                 |
-| `HINDSIGHT_API_LLM_API_KEY=…`            | `openclaw config set plugins.entries.hindsight-openclaw.config.llmApiKey --ref-source env --ref-id …`                                                                                                      |
-| `HINDSIGHT_API_LLM_BASE_URL=…`           | `openclaw config set plugins.entries.hindsight-openclaw.config.llmBaseUrl …`                                                                                                                               |
-| `HINDSIGHT_EMBED_API_URL=…`              | `openclaw config set plugins.entries.hindsight-openclaw.config.hindsightApiUrl …`                                                                                                                          |
-| `HINDSIGHT_EMBED_API_TOKEN=…`            | `openclaw config set plugins.entries.hindsight-openclaw.config.hindsightApiToken --ref-source env --ref-id …`                                                                                              |
-| `HINDSIGHT_BANK_ID=…`                    | `openclaw config set plugins.entries.hindsight-openclaw.config.bankId …`                                                                                                                                   |
+| `OPENAI_API_KEY=…` (auto-detected)       | `openclaw config set plugins.entries.hindsight.config.llmProvider openai` <br> `openclaw config set plugins.entries.hindsight.config.llmApiKey --ref-source env --ref-id OPENAI_API_KEY` |
+| `HINDSIGHT_API_LLM_PROVIDER=…`           | `openclaw config set plugins.entries.hindsight.config.llmProvider …`                                                                                                                              |
+| `HINDSIGHT_API_LLM_MODEL=…`              | `openclaw config set plugins.entries.hindsight.config.llmModel …`                                                                                                                                 |
+| `HINDSIGHT_API_LLM_API_KEY=…`            | `openclaw config set plugins.entries.hindsight.config.llmApiKey --ref-source env --ref-id …`                                                                                                      |
+| `HINDSIGHT_API_LLM_BASE_URL=…`           | `openclaw config set plugins.entries.hindsight.config.llmBaseUrl …`                                                                                                                               |
+| `HINDSIGHT_EMBED_API_URL=…`              | `openclaw config set plugins.entries.hindsight.config.hindsightApiUrl …`                                                                                                                          |
+| `HINDSIGHT_EMBED_API_TOKEN=…`            | `openclaw config set plugins.entries.hindsight.config.hindsightApiToken --ref-source env --ref-id …`                                                                                              |
+| `HINDSIGHT_BANK_ID=…`                    | `openclaw config set plugins.entries.hindsight.config.bankId …`                                                                                                                                   |
 | `llmApiKeyEnv: "MY_KEY"` (plugin config) | `llmApiKey` configured as a SecretRef with `--ref-id MY_KEY`                                                                                                                                               |
 
 If your shell already exports `OPENAI_API_KEY`, the SecretRef config above resolves
@@ -137,7 +141,7 @@ to confirm the new shape parses cleanly.
 
 ## Configuration
 
-Optional settings in `~/.openclaw/openclaw.json` under `plugins.entries.hindsight-openclaw.config`:
+Optional settings in `~/.openclaw/openclaw.json` under `plugins.entries.hindsight.config`:
 
 | Option                     | Default                        | Description                                                                                                                                                                                                                                                                                                      |
 | -------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -303,7 +307,7 @@ Version 0.12.0 and later work with **OpenClaw 2026.7.x through 2026.9.x**. The p
 
 Two expected (non-error) messages on 2026.8.1+:
 
-- Install prints `Exclusive slot "memory" switched from "memory-core" to "hindsight-openclaw"` — correct; Hindsight replaces OpenClaw's built-in memory.
+- Install prints `Exclusive slot "memory" switched from "memory-core" to "hindsight"` — correct; Hindsight replaces OpenClaw's built-in memory.
 - `openclaw plugins doctor` then reports `memory-core` is not selected for the memory slot — that is OpenClaw noting its built-in memory stepped aside.
 
 Upgrading from 0.11.1 or earlier: installs could fail with `npm error Cannot read properties of null (reading 'edgesOut')`. That was a packaging problem in the plugin, fixed in 0.12.0 — retry with the new version.
@@ -324,7 +328,7 @@ To test local changes to the Hindsight package before publishing:
 {
   "plugins": {
     "entries": {
-      "hindsight-openclaw": {
+      "hindsight": {
         "enabled": true,
         "config": {
           "embedPackagePath": "/path/to/hindsight-wt3/hindsight-embed"

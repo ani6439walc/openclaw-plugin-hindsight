@@ -71,7 +71,7 @@ describe("maskSecret", () => {
 });
 
 describe("ensurePluginConfig", () => {
-  it("initializes the hindsight-openclaw entry on an empty config", () => {
+  it("initializes the hindsight entry on an empty config", () => {
     const cfg: OpenClawConfigShape = {};
     const pc = ensurePluginConfig(cfg);
     expect(cfg.plugins?.entries?.[PLUGIN_ID]).toEqual({

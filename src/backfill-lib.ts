@@ -78,7 +78,7 @@ export function loadPluginConfigFromOpenClawRoot(openclawRoot: string): PluginCo
   };
   return {
     ...DEFAULT_PLUGIN_CONFIG,
-    ...(raw.plugins?.entries?.["hindsight-openclaw"]?.config || {}),
+    ...(raw.plugins?.entries?.["hindsight"]?.config || {}),
   };
 }
 

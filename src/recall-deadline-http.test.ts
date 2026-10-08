@@ -60,7 +60,7 @@ beforeEach(async () => {
     config: {
       plugins: {
         entries: {
-          "hindsight-openclaw": {
+          "hindsight": {
             config: {
               hindsightApiUrl: baseUrl,
               bankId: "test-bank",

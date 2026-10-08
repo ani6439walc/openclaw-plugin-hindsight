@@ -36,7 +36,7 @@ function makeApi(
     config: {
       plugins: {
         entries: {
-          "hindsight-openclaw": {
+          "hindsight": {
             config: {
               hindsightApiUrl: "https://hindsight.test",
               retainQueuePath: queuePath,

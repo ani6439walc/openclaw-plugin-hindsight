@@ -28,7 +28,7 @@ describe("openclaw.plugin.json", () => {
 
   it("has required top-level fields", () => {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
-    expect(manifest.id).toBe("hindsight-openclaw");
+    expect(manifest.id).toBe("hindsight");
     expect(manifest.name).toBeTypeOf("string");
     expect(manifest.configSchema).toBeDefined();
     expect(manifest.configSchema.properties).toBeDefined();

@@ -1877,7 +1877,7 @@ describe("async retain operation id capability", () => {
 
 function makeApi(rawConfig: Record<string, unknown>): MoltbotPluginAPI {
   return {
-    config: { plugins: { entries: { "hindsight-openclaw": { config: rawConfig } } } },
+    config: { plugins: { entries: { "hindsight": { config: rawConfig } } } },
     registerService: () => undefined,
     on: () => undefined,
     logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
