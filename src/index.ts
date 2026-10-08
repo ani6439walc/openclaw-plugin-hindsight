@@ -12,6 +12,7 @@ import {
   type HindsightClientOptions,
   type MinScores,
 } from "@vectorize-io/hindsight-client";
+import { emitAgentEvent } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { RetainQueue } from "./retain-queue.js";
 import { compileSessionPatterns, matchesSessionPattern } from "./session-patterns.js";
 import { parseSessionFile } from "./session-file.js";
@@ -2841,7 +2842,8 @@ export default function (api: MoltbotPluginAPI) {
         const emitProgress = (details: Record<string, unknown>) => {
           try {
             if (!ctx?.runId) return;
-            const emitted = api.agent?.events?.emitAgentEvent?.({
+            ctx.hookInvocation?.assertActive();
+            const emitted = emitAgentEvent({
               runId: ctx.runId,
               stream: "hindsight-openclaw.recall",
               sessionKey: sessionKeyForCache,

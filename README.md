@@ -46,11 +46,13 @@ the gateway. Existing installations do not need to rerun the setup wizard. Insta
 or replacing the plugin is a separate operator action; building this repository
 does not change a running OpenClaw installation.
 
-Recall progress uses the `hindsight-openclaw.recall` agent event stream when the
-host SDK supports `api.agent.events.emitAgentEvent`. A compatible discord-activity
+This fork targets OpenClaw `2026.9.6` (declared as a peer dependency), with Node
+`>=24.16.0 <25 || >=26.1.0`. Recall progress uses the `hindsight-openclaw.recall`
+agent event stream through `emitAgentEvent` from
+`openclaw/plugin-sdk/agent-harness-runtime`. A compatible discord-activity
 version can display the recall status, elapsed time, and result count. Events do
-not include the query or recalled memory content; missing event support or a
-reporting failure must not prevent recall.
+not include the query or recalled memory content; a reporting failure must not
+prevent recall.
 
 `hindsight-openclaw-setup` walks you through picking one of three modes:
 
@@ -63,9 +65,10 @@ The interactive wizard stores credentials **inline** in `openclaw.json` for simp
 ### Recall progress event contract
 
 Events use stream `hindsight-openclaw.recall` and the host's `runId` and
-`sessionKey` envelope fields. Emission requires both a hook context `runId` and
-the optional SDK method `api.agent.events.emitAgentEvent`; older hosts without
-these continue recalling normally, without progress events.
+`sessionKey` envelope fields. Emission requires a hook context `runId`. The host
+SDK emitter works inside agent-scoped prompt hooks, where the registration API
+method `api.agent.events.emitAgentEvent` can return `global side effects disabled`.
+Expired hook invocations do not emit events.
 
 The `data` payload contains:
 
@@ -401,3 +404,11 @@ Useful options:
 ## License
 
 MIT
+
+### Jules PR review
+
+The Jules review workflow follows skill-harness. Connect this repository to Jules
+and configure the `JULES_API_KEY` GitHub Actions secret. Reviews run for pull
+requests opened by the owner or trusted collaborators; GitHub supplies
+`GITHUB_TOKEN` automatically. Large diffs use a temporary branch that the workflow
+cleans up after review.

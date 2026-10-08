@@ -12,7 +12,15 @@
   "openclaw": {
     "extensions": [
       "./dist/index.js"
-    ]
+    ],
+    "compat": {
+      "pluginApi": ">=2026.9.6",
+      "minGatewayVersion": "2026.9.6"
+    },
+    "build": {
+      "openclawVersion": "2026.9.6",
+      "pluginSdkVersion": "2026.9.6"
+    }
   },
   "keywords": [
     "openclaw",
@@ -61,7 +69,7 @@
     "vitest": "^4.1.11"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24.16.0 <25 || >=26.1.0"
   },
   "overrides": {
     "rollup": "^4.59.0",
@@ -72,5 +80,8 @@
   "homepage": "https://github.com/ani6439walc/openclaw-plugin-hindsight#readme",
   "bugs": {
     "url": "https://github.com/ani6439walc/openclaw-plugin-hindsight/issues"
+  },
+  "peerDependencies": {
+    "openclaw": "2026.9.6"
   }
 }
