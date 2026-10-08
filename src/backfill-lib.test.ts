@@ -46,7 +46,7 @@ describe("backfill planning", () => {
     writeOpenClawConfig(root, {
       plugins: {
         entries: {
-          "hindsight-openclaw": {
+          "hindsight": {
             config: {
               dynamicBankId: true,
               dynamicBankGranularity: ["agent", "provider", "channel"],
@@ -87,7 +87,7 @@ describe("backfill planning", () => {
 
   it("supports migration overrides for agent-only banks", () => {
     const root = makeTempRoot();
-    writeOpenClawConfig(root, { plugins: { entries: { "hindsight-openclaw": { config: {} } } } });
+    writeOpenClawConfig(root, { plugins: { entries: { "hindsight": { config: {} } } } });
     writeSession(root, "proj-debug", "two.jsonl", [
       { type: "session", id: "session-2", sessionKey: "agent:proj-debug:discord:group:abc" },
       { type: "message", message: { role: "user", content: "hello" } },
@@ -107,7 +107,7 @@ describe("backfill planning", () => {
 
   it("can exclude archive sessions", () => {
     const root = makeTempRoot();
-    writeOpenClawConfig(root, { plugins: { entries: { "hindsight-openclaw": { config: {} } } } });
+    writeOpenClawConfig(root, { plugins: { entries: { "hindsight": { config: {} } } } });
     writeSession(root, "main", "live.jsonl", [
       { type: "session", id: "live" },
       { type: "message", message: { role: "user", content: "live" } },

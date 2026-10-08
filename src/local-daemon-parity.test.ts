@@ -44,7 +44,7 @@ function makeApi(config: Record<string, unknown>): {
   let service: StartedService | undefined;
   const infoLines: string[] = [];
   const api = {
-    config: { plugins: { entries: { "hindsight-openclaw": { config } } } },
+    config: { plugins: { entries: { "hindsight": { config } } } },
     registerService: (svc: StartedService) => {
       service = svc;
     },

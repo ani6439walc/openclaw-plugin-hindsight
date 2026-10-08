@@ -11,7 +11,7 @@ import { readFile, writeFile, mkdir, rename } from "fs/promises";
 import { homedir } from "os";
 import { join, dirname } from "path";
 
-export const PLUGIN_ID = "hindsight-openclaw";
+export const PLUGIN_ID = "hindsight";
 
 /**
  * Default Hindsight Cloud endpoint. Update this when the hosted service URL is
@@ -73,7 +73,7 @@ export async function saveConfig(path: string, cfg: OpenClawConfigShape): Promis
 }
 
 /**
- * Ensure a `plugins.entries["hindsight-openclaw"].config` object exists, set
+ * Ensure a `plugins.entries["hindsight"].config` object exists, set
  * `enabled: true`, and return the mutable config record. Idempotent — safe to
  * call against a fresh or already-configured OpenClaw config.
  *
@@ -97,7 +97,7 @@ export function ensurePluginConfig(cfg: OpenClawConfigShape): Record<string, unk
   }
   // OpenClaw 2026.2.19+ warns at startup when `plugins.allow` is empty and
   // non-bundled plugins are discovered: "plugins.allow is empty; discovered
-  // non-bundled plugins may auto-load: hindsight-openclaw". Cosmetic only — the
+  // non-bundled plugins may auto-load: hindsight". Cosmetic only — the
   // plugin still loads — but noisy on every gateway start. Add ourselves to the
   // allowlist so the warning goes away. Never clobber a user-curated allowlist:
   // if `plugins.allow` is already an array, just append our id when missing.
