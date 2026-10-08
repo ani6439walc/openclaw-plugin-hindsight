@@ -2856,7 +2856,7 @@ export default function (api: MoltbotPluginAPI) {
             });
             void Promise.resolve(emitted).catch(() => {});
           } catch {
-            // Older hosts and failed subscribers must not interrupt recall.
+            // Failed subscribers must not interrupt recall.
           }
         };
         finishRecall = (terminal) => {
