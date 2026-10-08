@@ -82,7 +82,7 @@ cleanup() {
   fi
 
   # Clean up the tarball only if we packed it ourselves.
-  if [[ -n "$TARBALL" && "$TARBALL" == "$PLUGIN_DIR"/vectorize-io-hindsight-openclaw-*.tgz ]]; then
+  if [[ -n "$TARBALL" && "$TARBALL" == "$PLUGIN_DIR"/ani6439walc-hindsight-openclaw-*.tgz ]]; then
     rm -f "$TARBALL"
   fi
   exit "$rc"
@@ -215,7 +215,7 @@ main() {
       npm run build --silent
       npm pack --silent >/dev/null
     )
-    TARBALL="$(ls -t "$PLUGIN_DIR"/vectorize-io-hindsight-openclaw-*.tgz | head -1)"
+    TARBALL="$(ls -t "$PLUGIN_DIR"/ani6439walc-hindsight-openclaw-*.tgz | head -1)"
     log "packed: $TARBALL"
   fi
 

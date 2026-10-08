@@ -2,18 +2,55 @@
 
 Biomimetic long-term memory for [OpenClaw](https://openclaw.ai) using [Hindsight](https://vectorize.io/hindsight). Automatically captures conversations and intelligently recalls relevant context.
 
+## This fork
+
+This repository contains only the OpenClaw integration from Vectorize's Hindsight
+monorepo, with automatic recall progress events for
+[discord-activity](https://github.com/ani6439walc/openclaw-plugin-discord-activity).
+The Hindsight engine and SDK dependencies remain upstream packages. See
+[UPSTREAM.md](UPSTREAM.md) for the exact source revision and update procedure.
+Original code is copyright Vectorize AI, Inc., licensed under [MIT](LICENSE).
+
+The package name is `@ani6439walc/hindsight-openclaw`; the OpenClaw plugin ID stays
+`hindsight-openclaw`. Use this fork **in place of** the official integration, not
+alongside it. This README does not assume the fork is published to npm.
+
 ## Quick Start
 
+Requires Node.js 22 or newer and an existing OpenClaw installation.
+
 ```bash
-# 1. Install the plugin
-openclaw plugins install @vectorize-io/hindsight-openclaw
+git clone https://github.com/ani6439walc/openclaw-plugin-hindsight.git
+cd openclaw-plugin-hindsight
+npm ci
+npm run typecheck
+npm test
+npm run build
+npm pack
 
-# 2. Run the interactive setup wizard
-npx --package @vectorize-io/hindsight-openclaw hindsight-openclaw-setup
+# Install the archive produced above (adjust the version after updates).
+openclaw plugins install ./ani6439walc-hindsight-openclaw-0.13.0-discord.1.tgz
 
-# 3. Start OpenClaw
+# Optional: configure a new installation using this checkout's setup wizard.
+node dist/setup.js
+
 openclaw gateway
 ```
+
+For an existing official installation, first save your OpenClaw configuration and
+stop the gateway. On OpenClaw versions supporting `plugins install --force`, use
+`openclaw plugins install --force ./ani6439walc-hindsight-openclaw-0.13.0-discord.1.tgz`
+to replace the existing plugin. Check `openclaw plugins install --help` for your
+installed version, verify `plugins.entries.hindsight-openclaw.config`, then restart
+the gateway. Existing installations do not need to rerun the setup wizard. Installing
+or replacing the plugin is a separate operator action; building this repository
+does not change a running OpenClaw installation.
+
+Recall progress uses the `hindsight-openclaw.recall` agent event stream when the
+host SDK supports `api.agent.events.emitAgentEvent`. A compatible discord-activity
+version can display the recall status, elapsed time, and result count. Events do
+not include the query or recalled memory content; missing event support or a
+reporting failure must not prevent recall.
 
 `hindsight-openclaw-setup` walks you through picking one of three modes:
 
@@ -22,6 +59,29 @@ openclaw gateway
 - **Embedded daemon** — spawns a local `hindsight-embed` daemon on this machine. Prompts for the LLM provider (OpenAI / Anthropic / Gemini / Groq / Claude Code / Codex / Ollama) and its API key.
 
 The interactive wizard stores credentials **inline** in `openclaw.json` for simplicity — the value is masked as you paste it. For CI / production you can store credentials as a `SecretRef` (resolved from an env var, file, or exec source at startup) by using the non-interactive flags with `--token-env` / `--api-key-env`, or by switching an existing field afterwards with `openclaw config set ... --ref-source env --ref-id …`.
+
+### Recall progress event contract
+
+Events use stream `hindsight-openclaw.recall` and the host's `runId` and
+`sessionKey` envelope fields. Emission requires both a hook context `runId` and
+the optional SDK method `api.agent.events.emitAgentEvent`; older hosts without
+these continue recalling normally, without progress events.
+
+The `data` payload contains:
+
+| Field         | Meaning                                                                                                          |
+| ------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `kind`        | Always `hindsight.recall`.                                                                                       |
+| `recallId`    | A unique ID for each hook invocation that starts recall.                                                         |
+| `sessionKey`  | Session routing key, when available.                                                                             |
+| `state`       | `started`, followed by at most one terminal state: `completed`, `failed`, `cancelled`, or `skipped`.             |
+| `durationMs`  | Terminal events only: elapsed milliseconds since `started`, including client initialization and readiness waits. |
+| `resultCount` | Completed events only: number of retrieved results, including zero.                                              |
+| `reason`      | Failure: `timeout` or `error`; cancellation: `service_stopped`; skipped after starting: `client_unavailable`.    |
+
+Provider/session filters, disabled automatic recall, and other prechecks that
+return before recall starts emit no events. Correlate events by `recallId` and
+reject stale run/session events; do not infer recall success from silence.
 
 ### Manual configuration (without the wizard)
 
@@ -301,7 +361,7 @@ By default it mirrors the active plugin settings for:
 Dry-run example:
 
 ```bash
-npx --package @vectorize-io/hindsight-openclaw hindsight-openclaw-backfill \
+node dist/backfill.js \
   --openclaw-root ~/.openclaw \
   --dry-run
 ```

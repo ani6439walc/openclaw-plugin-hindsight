@@ -1,6 +1,6 @@
 {
-  "name": "@vectorize-io/hindsight-openclaw",
-  "version": "0.13.0",
+  "name": "@ani6439walc/hindsight-openclaw",
+  "version": "0.13.0-discord.1",
   "description": "Hindsight memory plugin for OpenClaw - biomimetic long-term memory with fact extraction",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -26,13 +26,14 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/vectorize-io/hindsight.git",
-    "directory": "hindsight-integrations/openclaw"
+    "url": "https://github.com/ani6439walc/openclaw-plugin-hindsight.git"
   },
   "files": [
     "dist",
     "openclaw.plugin.json",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "UPSTREAM.md"
   ],
   "scripts": {
     "build": "tsc",
@@ -44,7 +45,8 @@
     "test": "vitest run src",
     "test:watch": "vitest src",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "prepublishOnly": "npm run clean && npm run build"
+    "prepublishOnly": "npm run clean && npm run build",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@clack/prompts": "^1.2.0",
@@ -66,5 +68,9 @@
     "picomatch": ">=2.3.2 <3.0.0 || >=4.0.4",
     "vite": ">=8.0.5",
     "postcss": ">=8.5.23 <9.0.0"
+  },
+  "homepage": "https://github.com/ani6439walc/openclaw-plugin-hindsight#readme",
+  "bugs": {
+    "url": "https://github.com/ani6439walc/openclaw-plugin-hindsight/issues"
   }
 }
