@@ -2709,6 +2709,12 @@ export default function (api: MoltbotPluginAPI) {
       // the early-return paths below don't influence the measurement of slow
       // recall calls — perf lines are only emitted on the recall path.
       const perfHookStart = pluginConfig.debugPerfTiming ? Date.now() : 0;
+      let finishRecall: (terminal: {
+        state: "completed" | "failed" | "cancelled" | "skipped";
+        resultCount?: number;
+        reason?: "timeout" | "error" | "service_stopped" | "client_unavailable";
+      }) => void = () => {};
+      const cancelRecall = () => finishRecall({ state: "cancelled", reason: "service_stopped" });
       try {
         // Check if this provider is excluded
         if (ctx?.messageProvider && pluginConfig.excludeProviders?.includes(ctx.messageProvider)) {
@@ -2828,20 +2834,63 @@ export default function (api: MoltbotPluginAPI) {
           prompt = prompt.substring(0, recallMaxQueryChars);
         }
 
+        // Progress is best-effort telemetry, never a dependency of memory recall.
+        const recallId = randomUUID();
+        const progressStart = Date.now();
+        let progressFinished = false;
+        const emitProgress = (details: Record<string, unknown>) => {
+          try {
+            if (!ctx?.runId) return;
+            const emitted = api.agent?.events?.emitAgentEvent?.({
+              runId: ctx.runId,
+              stream: "hindsight-openclaw.recall",
+              sessionKey: sessionKeyForCache,
+              data: {
+                kind: "hindsight.recall",
+                recallId,
+                ...(sessionKeyForCache === undefined ? {} : { sessionKey: sessionKeyForCache }),
+                ...details,
+              },
+            });
+            void Promise.resolve(emitted).catch(() => {});
+          } catch {
+            // Older hosts and failed subscribers must not interrupt recall.
+          }
+        };
+        finishRecall = (terminal) => {
+          if (progressFinished) return;
+          progressFinished = true;
+          emitProgress({ ...terminal, durationMs: Math.max(0, Date.now() - progressStart) });
+        };
+        emitProgress({ state: "started" });
+        recallController?.signal.addEventListener("abort", cancelRecall, { once: true });
+        if (!isCurrentRecall()) {
+          cancelRecall();
+          return;
+        }
+
         // Wait for client to be ready
         const clientGlobal = (global as any).__hindsightClient;
         if (!clientGlobal) {
+          finishRecall({ state: "skipped", reason: "client_unavailable" });
           debug("[Hindsight] Client global not available, skipping auto-recall");
           return;
         }
 
         await clientGlobal.waitForReady();
-        if (!isCurrentRecall()) return;
+        if (!isCurrentRecall()) {
+          cancelRecall();
+          return;
+        }
 
         // Get client configured for this context's bank (async to handle mission setup)
         const client = await clientGlobal.getClientForContext(resolvedCtxForRecall);
-        if (!isCurrentRecall()) return;
+        if (!isCurrentRecall()) {
+          cancelRecall();
+          return;
+        }
         if (!client) {
+          finishRecall({ state: "skipped", reason: "client_unavailable" });
           debug("[Hindsight] Client not initialized, skipping auto-recall");
           return;
         }
@@ -2883,10 +2932,14 @@ export default function (api: MoltbotPluginAPI) {
 
         const recallStart = pluginConfig.debugPerfTiming ? Date.now() : 0;
         const response = await recallPromise;
-        if (!isCurrentRecall()) return;
+        if (!isCurrentRecall()) {
+          cancelRecall();
+          return;
+        }
         const recallElapsedMs = pluginConfig.debugPerfTiming ? Date.now() - recallStart : 0;
 
         if (!response.results || response.results.length === 0) {
+          finishRecall({ state: "completed", resultCount: 0 });
           if (pluginConfig.debugPerfTiming) {
             log.info(
               formatHookPerf("before_prompt_build", Date.now() - perfHookStart, {
@@ -2940,6 +2993,7 @@ ${memoriesFormatted}
         // Keep recalled memories outside the system prompt by default so the
         // provider can reuse its stable prompt prefix across turns. Users who
         // need system-level memory context can still opt into prepend or append.
+        finishRecall({ state: "completed", resultCount: results.length });
         const position = pluginConfig.recallInjectionPosition ?? "user";
         switch (position) {
           case "append":
@@ -2951,6 +3005,15 @@ ${memoriesFormatted}
             return { prependSystemContext: contextMessage };
         }
       } catch (error) {
+        if (!isCurrentRecall()) {
+          cancelRecall();
+        } else {
+          finishRecall({
+            state: "failed",
+            reason:
+              error instanceof DOMException && error.name === "TimeoutError" ? "timeout" : "error",
+          });
+        }
         if (error instanceof DOMException && error.name === "TimeoutError") {
           log.warn(
             `[Hindsight] Auto-recall timed out after ${pluginConfig.recallTimeoutMs ?? DEFAULT_RECALL_TIMEOUT_MS}ms, skipping memory injection`
@@ -2972,6 +3035,8 @@ ${memoriesFormatted}
           log.error("auto-recall error", error);
         }
         return;
+      } finally {
+        recallController?.signal.removeEventListener("abort", cancelRecall);
       }
     });
 

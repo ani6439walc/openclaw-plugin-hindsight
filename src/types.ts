@@ -10,6 +10,16 @@ export interface PluginPromptHookResult {
 
 export interface MoltbotPluginAPI {
   config: MoltbotConfig;
+  agent?: {
+    events?: {
+      emitAgentEvent?(event: {
+        runId: string;
+        stream: string;
+        sessionKey?: string;
+        data: Record<string, unknown>;
+      }): unknown;
+    };
+  };
   registerService(config: ServiceConfig): void;
   // OpenClaw hook handler signature: (event, ctx?) where ctx contains channel/sender info
   on(
@@ -57,6 +67,7 @@ export interface MoltbotConfig {
 }
 
 export interface PluginHookAgentContext {
+  runId?: string;
   agentId?: string;
   sessionKey?: string;
   workspaceDir?: string;
