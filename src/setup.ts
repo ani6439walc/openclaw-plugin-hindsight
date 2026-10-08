@@ -279,7 +279,7 @@ const validateRequired =
   (value: string | undefined): string | undefined =>
     value && value.trim().length > 0 ? undefined : msg;
 
-function assertNotCancelled<T>(value: T | symbol): asserts value is T {
+function assertNotCancelled<T>(value: T): asserts value is Exclude<T, symbol> {
   if (p.isCancel(value)) {
     p.cancel("Setup cancelled.");
     process.exit(1);

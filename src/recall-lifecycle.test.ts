@@ -6,6 +6,9 @@ import { join } from "node:path";
 import plugin from "./index.js";
 import type { MoltbotPluginAPI, PluginHookAgentContext, ServiceConfig } from "./types.js";
 
+const emit = vi.hoisted(() => vi.fn());
+vi.mock("openclaw/plugin-sdk/agent-harness-runtime", () => ({ emitAgentEvent: emit }));
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -22,7 +25,6 @@ describe("automatic recall service lifecycle", () => {
   let hooks: Map<string, Parameters<MoltbotPluginAPI["on"]>[1]>;
   let directory: string;
   let api: MoltbotPluginAPI;
-  const emit = vi.fn();
   const ctx: PluginHookAgentContext = {
     runId: "test-run",
     agentId: "main",
@@ -251,11 +253,40 @@ describe("automatic recall service lifecycle", () => {
     await run();
     expect(emit.mock.calls[1][0].data.durationMs).toBe(0);
   });
-  it.each(["absent", "throws", "rejects", "pending", "no-run-id"])(
+  it("uses the host SDK when the scoped API disables global side effects", async () => {
+    const sdk = await vi.importActual<typeof import("openclaw/plugin-sdk/agent-harness-runtime")>(
+      "openclaw/plugin-sdk/agent-harness-runtime"
+    );
+    const received: string[] = [];
+    const unsubscribe = sdk.onAgentEvent((event) => {
+      if (event.runId === ctx.runId && event.stream === "hindsight-openclaw.recall")
+        received.push(String(event.data.state));
+    });
+    emit.mockImplementation(sdk.emitAgentEvent);
+    const scopedEmit = vi.fn(() => ({ emitted: false, reason: "global side effects disabled" }));
+    api.agent = { events: { emitAgentEvent: scopedEmit } };
+    vi.spyOn(HindsightClient.prototype, "recall").mockResolvedValue(memory as never);
+    try {
+      await run();
+    } finally {
+      unsubscribe();
+    }
+    expect(scopedEmit).not.toHaveBeenCalled();
+    expect(received).toEqual(["started", "completed"]);
+  });
+  it("does not emit after the host expires the hook invocation", async () => {
+    vi.spyOn(HindsightClient.prototype, "recall").mockResolvedValue(memory as never);
+    await hooks.get("before_prompt_build")!(event, {
+      ...ctx,
+      hookInvocation: { assertActive() { throw new Error("expired"); } },
+    });
+    expect(emit).not.toHaveBeenCalled();
+  });
+  it.each(["absent-registration-api", "throws", "rejects", "pending", "no-run-id"])(
     "preserves recall when event emission is %s",
     async (mode) => {
       vi.spyOn(HindsightClient.prototype, "recall").mockResolvedValue(memory as never);
-      if (mode === "absent") delete api.agent;
+      if (mode === "absent-registration-api") delete api.agent;
       if (mode === "throws") {
         emit.mockImplementation(() => {
           throw new Error("subscriber");
@@ -270,7 +301,8 @@ describe("automatic recall service lifecycle", () => {
       expect(result).toEqual(
         expect.objectContaining({ prependContext: expect.stringContaining("A fixture observation") })
       );
-      if (mode === "absent" || mode === "no-run-id") expect(emit).not.toHaveBeenCalled();
+      if (mode === "no-run-id") expect(emit).not.toHaveBeenCalled();
+      if (mode === "absent-registration-api") expect(emit).toHaveBeenCalledTimes(2);
     }
   );
 });

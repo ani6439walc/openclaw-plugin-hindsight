@@ -67,6 +67,7 @@ export interface MoltbotConfig {
 }
 
 export interface PluginHookAgentContext {
+  hookInvocation?: { assertActive(): void };
   runId?: string;
   agentId?: string;
   sessionKey?: string;
