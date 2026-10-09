@@ -33,6 +33,13 @@ function itemFilePath(filePath: string, id: string): string {
   return join(directory, name);
 }
 
+function expectPrivateFile(path: string): void {
+  // Windows permissions are governed by ACLs, not POSIX mode bits.
+  if (process.platform !== "win32") {
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+  }
+}
+
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
@@ -57,7 +64,7 @@ describe("persistent retain outbox", () => {
     expect(readdirSync(`${filePath}.d`)).toHaveLength(1);
     expect(readdirSync(`${filePath}.d`)[0]).toMatch(/\.json$/);
     const itemPath = itemFilePath(filePath, id);
-    expect(statSync(itemPath).mode & 0o777).toBe(0o600);
+    expectPrivateFile(itemPath);
     expect(JSON.parse(readFileSync(itemPath, "utf8"))).toMatchObject({
       id,
       bankId: "bank-1",
@@ -153,7 +160,7 @@ describe("persistent retain outbox", () => {
       recovered.peek().find((item) => item.id === second)?.operationId,
     ).toBe("other-id");
     expect(recovered.size()).toBe(2);
-    expect(statSync(itemFilePath(filePath, first)).mode & 0o777).toBe(0o600);
+    expectPrivateFile(itemFilePath(filePath, first));
   });
 
   it("migrates legacy JSONL once and preserves malformed rows in the archive", () => {
@@ -174,12 +181,9 @@ describe("persistent retain outbox", () => {
     expect(migrated.peek()).toEqual([legacy]);
     expect(existsSync(filePath)).toBe(false);
     expect(readFileSync(`${filePath}.migrated`, "utf8")).toBe(original);
-    expect(statSync(`${filePath}.migrated`).mode & 0o777).toBe(0o600);
+    expectPrivateFile(`${filePath}.migrated`);
     expect(readdirSync(`${filePath}.d`)).toHaveLength(1);
-    expect(
-      statSync(join(`${filePath}.d`, readdirSync(`${filePath}.d`)[0])).mode &
-        0o777,
-    ).toBe(0o600);
+    expectPrivateFile(join(`${filePath}.d`, readdirSync(`${filePath}.d`)[0]));
 
     migrated.remove(legacy.id);
     const recovered = new RetainQueue({ filePath });

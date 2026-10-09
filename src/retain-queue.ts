@@ -188,6 +188,9 @@ export class RetainQueue {
     this.syncDirectory();
   }
   private syncDirectory(directory = this.directory): void {
+    // Node cannot open directory handles on Windows. File fsync still runs;
+    // POSIX directory errors must propagate rather than hide durability failures.
+    if (process.platform === "win32") return;
     const dir = openSync(directory, "r");
     try {
       fsyncSync(dir);
