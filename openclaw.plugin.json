@@ -326,7 +326,7 @@
       },
       "retainQueuePath": {
         "type": "string",
-        "description": "Queue base path; durable entries are stored in the adjacent .d directory. Existing JSONL is migrated and archived. Default: ~/.openclaw/data/hindsight-retain-queue.jsonl"
+        "description": "Queue base path; durable entries are stored in the adjacent .d directory. Existing JSONL is migrated and archived. Default: ~/.openclaw/plugins/hindsight/retain-queue.jsonl"
       },
       "retainQueueMaxAgeMs": {
         "type": "number",
@@ -588,7 +588,7 @@
     },
     "retainQueuePath": {
       "label": "Retain Queue File Path",
-      "placeholder": "~/.openclaw/data/hindsight-retain-queue.jsonl"
+      "placeholder": "~/.openclaw/plugins/hindsight/retain-queue.jsonl"
     },
     "retainQueueMaxAgeMs": {
       "label": "Retain Queue Max Age (ms)",

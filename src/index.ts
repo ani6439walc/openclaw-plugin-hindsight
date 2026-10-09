@@ -369,7 +369,7 @@ const DEFAULT_FLUSH_INTERVAL_MS = 60_000; // 1 min
 function openRetainQueue(pluginConfig: PluginConfig): RetainQueue {
   const queuePath =
     pluginConfig.retainQueuePath ||
-    join(homedir(), ".openclaw", "data", "hindsight-retain-queue.jsonl");
+    join(homedir(), ".openclaw", "plugins", "hindsight", "retain-queue.jsonl");
   return new RetainQueue({ filePath: queuePath, maxAgeMs: pluginConfig.retainQueueMaxAgeMs ?? -1 });
 }
 
