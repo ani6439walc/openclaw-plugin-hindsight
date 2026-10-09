@@ -47,7 +47,7 @@ or replacing the plugin is a separate operator action; building this repository
 does not change a running OpenClaw installation.
 
 This fork targets OpenClaw `2026.9.6` (declared as a peer dependency), with Node
-`>=24.16.0 <25 || >=26.1.0`. Recall progress uses the `hindsight-openclaw.recall`
+`>=24.16.0 <25 || >=26.1.0`. Recall progress uses the `plugin:hindsight`
 agent event stream through `emitAgentEvent` from
 `openclaw/plugin-sdk/agent-harness-runtime`. A compatible discord-activity
 version can display the recall status, elapsed time, and result count. Events do
@@ -63,12 +63,13 @@ prevent recall.
 The interactive wizard stores credentials **inline** in `openclaw.json` for simplicity — the value is masked as you paste it. For CI / production you can store credentials as a `SecretRef` (resolved from an env var, file, or exec source at startup) by using the non-interactive flags with `--token-env` / `--api-key-env`, or by switching an existing field afterwards with `openclaw config set ... --ref-source env --ref-id …`.
 
 The plugin ID is `hindsight`; migrate the previous entry, allow/deny references,
-and memory slot from `hindsight-openclaw` when upgrading. The npm package, CLI
-commands, and `hindsight-openclaw.recall` event stream keep their existing names.
+and memory slot from `hindsight-openclaw` when upgrading. The npm package and CLI
+commands keep their existing names, and recall progress emits to the `plugin:hindsight`
+event stream.
 
 ### Recall progress event contract
 
-Events use stream `hindsight-openclaw.recall` and the host's `runId` and
+Events use stream `plugin:hindsight` and the host's `runId` and
 `sessionKey` envelope fields. Emission requires a hook context `runId`. The host
 SDK emitter works inside agent-scoped prompt hooks, where the registration API
 method `api.agent.events.emitAgentEvent` can return `global side effects disabled`.
@@ -79,6 +80,7 @@ The `data` payload contains:
 | Field         | Meaning                                                                                                          |
 | ------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `kind`        | Always `hindsight.recall`.                                                                                       |
+| `pluginId`    | Plugin ID (`hindsight`).                                                                                         |
 | `recallId`    | A unique ID for each hook invocation that starts recall.                                                         |
 | `sessionKey`  | Session routing key, when available.                                                                             |
 | `state`       | `started`, followed by at most one terminal state: `completed`, `failed`, `cancelled`, or `skipped`.             |

@@ -127,9 +127,10 @@ describe("automatic recall service lifecycle", () => {
     expect(progress[2]).toEqual({
       runId: ctx.runId,
       sessionKey: ctx.sessionKey,
-      stream: "hindsight-openclaw.recall",
+      stream: "plugin:hindsight",
       data: {
         kind: "hindsight.recall",
+        pluginId: "hindsight",
         recallId: expect.any(String),
         sessionKey: ctx.sessionKey,
         state: "completed",
@@ -259,7 +260,7 @@ describe("automatic recall service lifecycle", () => {
     );
     const received: string[] = [];
     const unsubscribe = sdk.onAgentEvent((event) => {
-      if (event.runId === ctx.runId && event.stream === "hindsight-openclaw.recall")
+      if (event.runId === ctx.runId && event.stream === "plugin:hindsight")
         received.push(String(event.data.state));
     });
     emit.mockImplementation(sdk.emitAgentEvent);

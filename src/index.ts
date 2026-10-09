@@ -2851,10 +2851,11 @@ export default function (api: MoltbotPluginAPI) {
             ctx.hookInvocation?.assertActive();
             const emitted = emitAgentEvent({
               runId: ctx.runId,
-              stream: "hindsight-openclaw.recall",
+              stream: "plugin:hindsight",
               sessionKey: sessionKeyForCache,
               data: {
                 kind: "hindsight.recall",
+                pluginId: "hindsight",
                 recallId,
                 ...(sessionKeyForCache === undefined ? {} : { sessionKey: sessionKeyForCache }),
                 ...details,
