@@ -17,10 +17,9 @@ import { RetainQueue } from "./retain-queue.js";
 import { compileSessionPatterns, matchesSessionPattern } from "./session-patterns.js";
 import { parseSessionFile } from "./session-file.js";
 import { createHash, randomUUID } from "crypto";
-import { dirname, join } from "path";
+import { join } from "path";
 import * as log from "./logger.js";
 import { configureLogger, setApiLogger, stopLogger } from "./logger.js";
-import { mkdirSync } from "fs";
 import { createRequire } from "module";
 import { homedir } from "os";
 import { createKnowledgeTools, TOOL_NAMES } from "@vectorize-io/hindsight-agent-sdk";
@@ -134,8 +133,8 @@ let currentPluginConfig: PluginConfig | null = null;
 let serviceGeneration = 0;
 let serviceAbortController: AbortController | null = null;
 // External-API hooks can lazy-initialize before the first service.start(). Keep
-// that recall-only lifetime cancellable without enabling pre-start retention.
-const preServiceRecallController = new AbortController();
+// that hook lifetime cancellable for both recall and retention.
+const preServiceHookController = new AbortController();
 
 // Track which banks have had configured defaults applied (missions + bank config).
 const banksWithDefaultsApplied = new Set<string>();
@@ -353,53 +352,52 @@ const REINIT_COOLDOWN_MS = 30_000;
 // Retain queue (both external-API and local-daemon mode)
 let retainQueue: RetainQueue | null = null;
 let retainQueueFlushTimer: ReturnType<typeof setInterval> | null = null;
-let isFlushInProgress = false;
+// Scoped module instances share one process; only one Gateway worker may drain a path.
+const flushOwnersKey = Symbol.for("hindsight.retainQueue.flushOwners");
+const processState = globalThis as typeof globalThis & {
+  [key: symbol]: Set<string> | undefined;
+};
+const flushOwners = (processState[flushOwnersKey] ??= new Set<string>());
 const DEFAULT_FLUSH_INTERVAL_MS = 60_000; // 1 min
 
 /**
- * Open the JSONL retain queue and start its periodic flush timer.
+ * Open the durable retain queue and start its periodic flush timer.
  *
- * Never throws: without the queue a failed retain is dropped exactly as it was
- * before the queue existed, which is worth far less than taking the whole plugin
- * down over an unwritable state directory.
+ * Service-owned timer; agent registries open producer handles without timers.
+ * Initialization errors are reported without taking down the agent reply.
  */
+function openRetainQueue(pluginConfig: PluginConfig): RetainQueue {
+  const queuePath =
+    pluginConfig.retainQueuePath ||
+    join(homedir(), ".openclaw", "data", "hindsight-retain-queue.jsonl");
+  return new RetainQueue({ filePath: queuePath, maxAgeMs: pluginConfig.retainQueueMaxAgeMs ?? -1 });
+}
+
 function initRetainQueue(
   pluginConfig: PluginConfig,
   expectedGeneration: number,
   signal: globalThis.AbortSignal
 ): void {
-  // service.start() can run again without an intervening stop() (gateway
-  // reloads); don't leak the previous generation's timer onto the new one.
-  if (retainQueueFlushTimer) {
-    clearInterval(retainQueueFlushTimer);
-    retainQueueFlushTimer = null;
-  }
+  if (retainQueueFlushTimer) clearInterval(retainQueueFlushTimer);
+  retainQueueFlushTimer = null;
   try {
-    const queueDir = pluginConfig.retainQueuePath
-      ? dirname(pluginConfig.retainQueuePath)
-      : join(homedir(), ".openclaw", "data");
-    mkdirSync(queueDir, { recursive: true });
-    const queuePath =
-      pluginConfig.retainQueuePath || join(queueDir, "hindsight-retain-queue.jsonl");
-    const queueFlushInterval = pluginConfig.retainQueueFlushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
-    const queueMaxAge = pluginConfig.retainQueueMaxAgeMs ?? -1;
-    retainQueue = new RetainQueue({ filePath: queuePath, maxAgeMs: queueMaxAge });
+    retainQueue = openRetainQueue(pluginConfig);
     const pending = retainQueue.size();
     if (pending > 0) {
       log.info(`retain queue: ${pending} items pending from previous session, will flush shortly`);
     }
-    debug(`[Hindsight] Retain queue initialized: ${queuePath}`);
-
-    // Periodic flush timer
-    if (queueFlushInterval > 0) {
+    const interval = pluginConfig.retainQueueFlushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
+    if (interval > 0) {
       retainQueueFlushTimer = setInterval(() => {
-        void flushRetainQueue(undefined, undefined, undefined, expectedGeneration, signal);
-      }, queueFlushInterval);
+        void flushRetainQueue(undefined, undefined, undefined, expectedGeneration, signal).catch(
+          error => log.error("retain queue flush failed", error)
+        );
+      }, interval);
       retainQueueFlushTimer.unref?.();
     }
   } catch (error) {
     retainQueue = null;
-    log.warn(`could not initialize retain queue, continuing without it: ${error}`);
+    log.error("could not initialize durable retain queue", error);
   }
 }
 
@@ -415,16 +413,15 @@ export async function flushRetainQueue(
   signal: globalThis.AbortSignal | undefined = serviceAbortController?.signal
 ): Promise<void> {
   const activeQueue = queueOverride ?? retainQueue;
-  const activeClient = clientOverride ?? client;
   if (
     !activeQueue ||
-    isFlushInProgress ||
+    flushOwners.has(activeQueue.directory) ||
     expectedGeneration !== serviceGeneration ||
     signal?.aborted
   )
     return;
 
-  isFlushInProgress = true;
+  flushOwners.add(activeQueue.directory);
   let flushed = 0;
   let failed = 0;
 
@@ -449,7 +446,10 @@ export async function flushRetainQueue(
       );
       return;
     }
-    if (!activeClient) return; // no client yet — can't flush
+    if (!clientOverride && !client) await lazyReinit();
+    if (expectedGeneration !== serviceGeneration || signal?.aborted) return;
+    const activeClient = clientOverride ?? client;
+    if (!activeClient) return;
 
     // Cleanup expired items first
     activeQueue.cleanup();
@@ -462,6 +462,10 @@ export async function flushRetainQueue(
           capability === "supported"
             ? activeQueue.ensureOperationId(item.id, randomUUID())
             : undefined;
+        if (!clientOverride && currentPluginConfig) {
+          await ensureBankDefaultsApplied(item.bankId, currentPluginConfig);
+          if (expectedGeneration !== serviceGeneration || signal?.aborted) return;
+        }
         await activeClient.retain(item.bankId, item.content, {
           documentId: item.documentId,
           context: item.context,
@@ -477,9 +481,13 @@ export async function flushRetainQueue(
         // Checkpoint each acknowledgement before the next network await. A
         // later abort must not replay already-accepted work on legacy servers.
         activeQueue.remove(item.id);
+        log.trackRetain(item.bankId, Number(item.metadata?.message_count) || 0);
         flushed++;
-      } catch {
+      } catch (error) {
         if (expectedGeneration !== serviceGeneration || signal?.aborted) return;
+        log.warn(
+          `retain delivery failed; item remains queued (bank: ${item.bankId}): ${error instanceof Error ? error.message : error}`
+        );
         // API still down — stop trying this batch
         failed++;
         break;
@@ -496,7 +504,7 @@ export async function flushRetainQueue(
       debug(`[Hindsight] Queue flush: API still unreachable, ${remaining} retains pending`);
     }
   } finally {
-    isFlushInProgress = false;
+    flushOwners.delete(activeQueue.directory);
   }
 }
 
@@ -2303,7 +2311,7 @@ export default function (api: MoltbotPluginAPI) {
     api.registerService({
       id: "hindsight-memory",
       async start() {
-        preServiceRecallController.abort();
+        preServiceHookController.abort();
         serviceAbortController?.abort();
         inflightRecalls.clear();
         const serviceController = new AbortController();
@@ -2585,7 +2593,7 @@ export default function (api: MoltbotPluginAPI) {
       async stop() {
         try {
           serviceGeneration++;
-          preServiceRecallController.abort();
+          preServiceHookController.abort();
           serviceAbortController?.abort();
           serviceAbortController = null;
           inflightRecalls.clear();
@@ -2699,10 +2707,10 @@ export default function (api: MoltbotPluginAPI) {
     api.on("before_prompt_build", async (event: any, ctx?: PluginHookAgentContext) => {
       const recallGeneration = serviceGeneration;
       const recallController =
-        serviceAbortController ?? (recallGeneration === 0 ? preServiceRecallController : null);
+        serviceAbortController ?? (recallGeneration === 0 ? preServiceHookController : null);
       const isCurrentRecall = () =>
         recallController !== null &&
-        (serviceAbortController ?? preServiceRecallController) === recallController &&
+        (serviceAbortController ?? preServiceHookController) === recallController &&
         recallGeneration === serviceGeneration &&
         !recallController.signal.aborted;
       if (!isCurrentRecall()) return;
@@ -3055,11 +3063,12 @@ ${memoriesFormatted}
       const force = retainOptions.force === true;
       const hookName = retainOptions.hookName;
       const retainGeneration = serviceGeneration;
-      const retainController = serviceAbortController;
+      const retainController =
+        serviceAbortController ?? (retainGeneration === 0 ? preServiceHookController : null);
       const retainSignal = retainController?.signal;
       const retainLifecycleIsCurrent = () =>
         retainController !== null &&
-        serviceAbortController === retainController &&
+        (serviceAbortController ?? preServiceHookController) === retainController &&
         retainGeneration === serviceGeneration &&
         !retainSignal?.aborted;
       if (!retainLifecycleIsCurrent()) return;
@@ -3292,40 +3301,14 @@ ${memoriesFormatted}
           return;
         }
 
-        // Wait for client to be ready
-        const clientGlobal = (global as any).__hindsightClient;
-        if (!clientGlobal) {
-          log.warn("client global not found, skipping retain");
-          return;
-        }
-
-        await clientGlobal.waitForReady();
-        if (!retainLifecycleIsCurrent()) return;
-
-        // Get client configured for this context's bank (async to handle mission setup)
-        const client = await clientGlobal.getClientForContext(resolvedCtxForRetain);
-        if (!retainLifecycleIsCurrent()) return;
-        if (!client) {
-          log.warn("client not initialized, skipping retain");
-          return;
-        }
-
-        // Use the cached capability, and only pay for a /version round trip while
-        // it is still unknown. Probing on every retain would put an extra
-        // request in front of every turn, and the answer changes at most once
-        // per server restart — the queue flush re-probes on its own timer.
-        const retainOperationIdCapability =
-          asyncRetainOperationIdCapability === "unknown"
-            ? await refreshQueueOperationIdCapability(retainGeneration, retainSignal)
-            : asyncRetainOperationIdCapability;
-        if (!retainLifecycleIsCurrent()) return;
-        const retainNow = Date.now();
+        // Persist before any client initialization or network await. Agent-scoped
+        // registries never start services; they are producers, not retry workers.
         const retainRequest = buildRetainRequest(
           transcript,
           messageCount,
           effectiveCtxForRetain,
           pluginConfig,
-          retainNow,
+          Date.now(),
           {
             retentionScope: retainFullWindow ? "window" : "turn",
             windowTurns: retainFullWindow
@@ -3336,57 +3319,30 @@ ${memoriesFormatted}
             operationId: createAsyncRetainOperationId(),
           }
         );
-
-        // Retain to Hindsight
+        ctx?.hookInvocation?.assertActive();
+        retainQueue ??= openRetainQueue(pluginConfig);
+        retainQueue.enqueue(bankId, retainRequest, retainRequest.metadata);
         debug(
-          `[Hindsight] Retaining to bank ${bankId}, document: ${retainRequest.documentId}, chars: ${transcript.length}\n---\n${transcript.substring(0, 500)}${transcript.length > 500 ? "\n...(truncated)" : ""}\n---`
+          `[Hindsight] Queued ${messageCount} messages for bank ${bankId}, document: ${retainRequest.documentId}`
         );
 
-        const retainStart = pluginConfig.debugPerfTiming ? Date.now() : 0;
-        let retainElapsedMs = 0;
-        let retainOutcome: "ok" | "queued" | "error" = "error";
-        try {
-          // An unknown capability does not hold up the first send: there is
-          // nothing on the server yet for it to duplicate, so omitting the wire
-          // field is exactly today's behaviour. The id is still allocated and
-          // persisted with the request, so a *replay* can be idempotent once the
-          // capability is known — that is where duplicates actually come from.
-          await client.retain(retainRequest, retainOperationIdCapability, retainSignal);
-          if (!retainLifecycleIsCurrent()) return;
-          retainElapsedMs = pluginConfig.debugPerfTiming ? Date.now() - retainStart : 0;
-          retainOutcome = "ok";
-          log.trackRetain(bankId, messageCount);
-          debug(
-            `[Hindsight] Retained ${messageCount} messages to bank ${bankId} for session ${retainRequest.documentId}`
+        // Only the service owner sends. Scoped producers leave delivery to the
+        // Gateway timer, including when health checks or initialization fail.
+        if (serviceAbortController === retainController) {
+          await flushRetainQueue(
+            undefined,
+            undefined,
+            asyncRetainOperationIdCapability === "unknown"
+              ? undefined
+              : asyncRetainOperationIdCapability,
+            retainGeneration,
+            retainSignal
           );
-
-          // After a successful retain, try flushing any queued items
-          if (retainQueue) {
-            flushRetainQueue(undefined, undefined, undefined, retainGeneration, retainSignal).catch(
-              () => {}
-            );
-          }
-        } catch (retainError) {
-          if (!retainLifecycleIsCurrent()) return;
-          retainElapsedMs = pluginConfig.debugPerfTiming ? Date.now() - retainStart : 0;
-          // Queue the failed retain for later delivery
-          if (retainQueue) {
-            retainQueue.enqueue(bankId, retainRequest, retainRequest.metadata);
-            retainOutcome = "queued";
-            const pending = retainQueue.size();
-            log.warn(
-              `API unreachable — retain queued (${pending} pending, bank: ${bankId}): ${retainError instanceof Error ? retainError.message : retainError}`
-            );
-          } else {
-            log.error("error retaining messages", retainError);
-          }
         }
-
         if (pluginConfig.debugPerfTiming) {
           log.info(
             formatHookPerf(hookName, Date.now() - perfHookStart, {
-              retain: `${retainElapsedMs}ms`,
-              outcome: retainOutcome,
+              outcome: "persisted",
               bank: bankId,
               messages: messageCount,
             })

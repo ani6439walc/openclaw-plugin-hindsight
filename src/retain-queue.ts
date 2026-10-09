@@ -1,24 +1,20 @@
-/**
- * JSONL-backed retain queue for buffering failed HTTP retains.
- *
- * When the Hindsight API is unreachable, retain requests are stashed in a local
- * JSONL file and flushed later. Used in both modes: a locally spawned daemon is
- * just as unreachable while it boots or after it crashes as a remote API is.
- *
- * Zero runtime dependencies; uses only Node built-ins.
- */
-
+/** Durable per-item retain outbox. Producers add files; the Gateway drains them. */
 import {
   readFileSync,
   writeFileSync,
-  appendFileSync,
   existsSync,
   renameSync,
   unlinkSync,
+  mkdirSync,
+  readdirSync,
+  openSync,
+  closeSync,
+  fsyncSync,
+  chmodSync
 } from "fs";
-import { randomBytes } from "crypto";
+import { randomUUID, createHash } from "crypto";
+import { dirname, join, resolve } from "path";
 
-/** The subset of a retain payload the queue needs to persist and replay. */
 export interface QueuedRetainPayload {
   content: string;
   documentId?: string;
@@ -28,143 +24,175 @@ export interface QueuedRetainPayload {
   operationId?: string;
   updateMode?: "replace" | "append";
 }
-
-export interface QueuedRetain {
+export interface QueuedRetain extends QueuedRetainPayload {
   id: string;
   bankId: string;
-  content: string;
   documentId: string;
-  context?: string;
   metadata: Record<string, unknown>;
-  tags?: string[];
-  operationId?: string;
-  updateMode?: "replace" | "append";
-  createdAt: string; // ISO 8601
+  createdAt: string;
+  createdOrder?: string;
 }
-
 export interface RetainQueueOptions {
-  /** Path to the JSONL queue file. The parent directory must already exist. */
+  /** Legacy JSONL path; new entries live in the adjacent `<filePath>.d` directory. */
   filePath: string;
-  /** Max age in ms for queued items. `-1` (default) keeps items forever. */
   maxAgeMs?: number;
 }
-
 export class RetainQueue {
-  private readonly filePath: string;
+  readonly directory: string;
   private readonly maxAgeMs: number;
-  private cachedSize: number;
-
   constructor(opts: RetainQueueOptions) {
-    this.filePath = opts.filePath;
+    this.directory = resolve(opts.filePath + ".d");
     this.maxAgeMs = opts.maxAgeMs ?? -1;
-    this.cachedSize = this.readAll().length;
+    mkdirSync(this.directory, { recursive: true, mode: 0o700 });
+    this.syncDirectory(dirname(this.directory));
+    // Stable filenames let an interrupted migration resume without duplicating rows.
+    if (existsSync(opts.filePath)) {
+      for (const line of readFileSync(opts.filePath, "utf8").split("\n")) {
+        let item: QueuedRetain;
+        try {
+          item = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (
+          !item ||
+          typeof item.id !== "string" ||
+          typeof item.content !== "string" ||
+          typeof item.bankId !== "string" ||
+          typeof item.createdAt !== "string" ||
+          !Number.isFinite(Date.parse(item.createdAt))
+        )
+          continue;
+        if (!existsSync(this.path(item.id))) this.write(item);
+      }
+      // Keep the original (including malformed lines) for recovery.
+      try {
+        chmodSync(opts.filePath, 0o600);
+        renameSync(
+          opts.filePath,
+          opts.filePath +
+            (existsSync(opts.filePath + ".migrated")
+              ? `.migrated-${randomUUID()}`
+              : ".migrated")
+        );
+        this.syncDirectory(dirname(resolve(opts.filePath)));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
   }
-
-  /** Append a failed retain for later delivery. */
-  enqueue(bankId: string, request: QueuedRetainPayload, metadata?: Record<string, unknown>): void {
+  enqueue(
+    bankId: string,
+    request: QueuedRetainPayload,
+    metadata?: Record<string, unknown>
+  ): string {
     const item: QueuedRetain = {
-      id: `${Date.now()}-${randomBytes(4).toString("hex")}`,
+      ...request,
+      id: randomUUID(),
       bankId,
-      content: request.content,
       documentId: request.documentId || "conversation",
-      context: request.context,
       metadata: metadata || request.metadata || {},
-      tags: request.tags,
-      operationId: request.operationId,
-      updateMode: request.updateMode,
       createdAt: new Date().toISOString(),
+      createdOrder: process.hrtime.bigint().toString().padStart(30, "0")
     };
-    appendFileSync(this.filePath, JSON.stringify(item) + "\n", "utf8");
-    this.cachedSize++;
+    this.write(item);
+    return item.id;
   }
-
-  /** Get up to `limit` oldest pending items (FIFO). */
   peek(limit = 50): QueuedRetain[] {
-    return this.readAll().slice(0, limit);
+    return this.readAll()
+      .sort(
+        (a, b) =>
+          a.createdAt.localeCompare(b.createdAt) ||
+          (a.createdOrder ?? a.id).localeCompare(b.createdOrder ?? b.id)
+      )
+      .slice(0, limit);
   }
-
-  /** Remove a single item by id. */
   remove(id: string): void {
-    const items = this.readAll().filter((i) => i.id !== id);
-    this.writeAll(items);
+    try {
+      unlinkSync(this.path(id));
+      this.syncDirectory();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
-
-  /** Remove multiple items by id in a single file rewrite. */
   removeMany(ids: string[]): void {
-    const idSet = new Set(ids);
-    const items = this.readAll().filter((i) => !idSet.has(i.id));
-    this.writeAll(items);
+    for (const id of ids) this.remove(id);
   }
-
-  /** Persist a replay identity before the request is sent. */
   ensureOperationId(id: string, operationId: string): string {
-    const items = this.readAll();
-    const item = items.find((queued) => queued.id === id);
-    if (!item) {
-      throw new Error(`queued retain not found: ${id}`);
-    }
-    if (typeof item.operationId === "string" && item.operationId.length > 0) {
-      return item.operationId;
-    }
+    const item = JSON.parse(
+      readFileSync(this.path(id), "utf8")
+    ) as QueuedRetain;
+    if (item.operationId) return item.operationId;
     item.operationId = operationId;
-    // The synchronous atomic rewrite must complete before the caller can send
-    // the request; otherwise another lost acknowledgement would lose this ID.
-    this.writeAll(items);
+    this.write(item);
     return operationId;
   }
-
-  /** Number of items waiting (cached, O(1)). */
   size(): number {
-    return this.cachedSize;
+    return this.readAll().length;
   }
-
-  /** Drop items older than `maxAgeMs`. No-op when `maxAgeMs < 0`. */
   cleanup(): number {
     if (this.maxAgeMs < 0) return 0;
-    const cutoff = Date.now() - this.maxAgeMs;
-    const items = this.readAll();
-    const kept = items.filter((i) => new Date(i.createdAt).getTime() >= cutoff);
-    const removed = items.length - kept.length;
-    if (removed > 0) this.writeAll(kept);
-    return removed;
+    const expired = this.readAll().filter(
+      (item) => new Date(item.createdAt).getTime() < Date.now() - this.maxAgeMs
+    );
+    this.removeMany(expired.map((item) => item.id));
+    return expired.length;
   }
-
-  /** No-op — kept for API symmetry with DB-backed queues. */
-  close(): void {
-    /* nothing to close */
+  close(): void {}
+  private path(id: string): string {
+    return join(
+      this.directory,
+      createHash("sha256").update(id).digest("hex") + ".json"
+    );
   }
-
-  // -------------------------------------------------------------------------
-
   private readAll(): QueuedRetain[] {
-    if (!existsSync(this.filePath)) return [];
-    const content = readFileSync(this.filePath, "utf8").trim();
-    if (!content) return [];
     const items: QueuedRetain[] = [];
-    for (const line of content.split("\n")) {
+    for (const name of readdirSync(this.directory)) {
+      if (!name.endsWith(".json")) continue;
+      let raw: string;
       try {
-        items.push(JSON.parse(line) as QueuedRetain);
+        raw = readFileSync(join(this.directory, name), "utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      // A corrupt item remains on disk for recovery instead of blocking other items.
+      try {
+        const item = JSON.parse(raw);
+        if (
+          item &&
+          typeof item.id === "string" &&
+          typeof item.content === "string" &&
+          typeof item.bankId === "string" &&
+          typeof item.createdAt === "string" &&
+          Number.isFinite(Date.parse(item.createdAt))
+        )
+          items.push(item);
       } catch {
-        // skip malformed lines
+        /* preserve the corrupt file */
       }
     }
     return items;
   }
-
-  /** Atomically rewrite the file with the given items. */
-  private writeAll(items: QueuedRetain[]): void {
-    if (items.length === 0) {
-      try {
-        unlinkSync(this.filePath);
-      } catch {
-        /* already gone */
-      }
-      this.cachedSize = 0;
-      return;
+  private write(item: QueuedRetain): void {
+    const temporary = join(this.directory, randomUUID() + ".tmp");
+    const fd = openSync(temporary, "wx", 0o600);
+    try {
+      writeFileSync(fd, JSON.stringify(item) + "\n", "utf8");
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
     }
-    const tmpPath = this.filePath + ".tmp";
-    writeFileSync(tmpPath, items.map((i) => JSON.stringify(i)).join("\n") + "\n", "utf8");
-    renameSync(tmpPath, this.filePath);
-    this.cachedSize = items.length;
+    renameSync(temporary, this.path(item.id));
+    // Persist the directory entry too, so a committed enqueue survives a crash.
+    this.syncDirectory();
+  }
+  private syncDirectory(directory = this.directory): void {
+    const dir = openSync(directory, "r");
+    try {
+      fsyncSync(dir);
+    } finally {
+      closeSync(dir);
+    }
   }
 }

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { RetainQueue } from "./retain-queue.js";
 import registerPlugin, { type AsyncRetainOperationIdCapability } from "./index.js";
 import type { MoltbotPluginAPI, PluginHookAgentContext, ServiceConfig } from "./types.js";
 
@@ -221,12 +222,7 @@ function makeQueuePath(): string {
 }
 
 function readQueue(queuePath: string): Array<{ operationId?: string }> {
-  // A fully drained queue removes its file, so "missing" and "empty" are the
-  // same observation here.
-  if (!existsSync(queuePath)) return [];
-  const raw = readFileSync(queuePath, "utf8").trim();
-  if (!raw) return [];
-  return raw.split("\n").map((line) => JSON.parse(line) as { operationId?: string });
+  return new RetainQueue({ filePath: queuePath }).peek();
 }
 
 describe("retain queue idempotent replay", () => {
@@ -266,7 +262,7 @@ describe("retain queue idempotent replay", () => {
     await secondService.stop();
   });
 
-  it("still sends the first attempt when /version is unreachable, then holds the replay until it answers", async () => {
+  it("persists before sending when /version is unreachable, then delivers when it answers", async () => {
     vi.useFakeTimers();
     const queuePath = makeQueuePath();
     const server = installFakeServer("unknown");
@@ -279,20 +275,21 @@ describe("retain queue idempotent replay", () => {
     const { event, ctx } = conversation("Remember this while /version is down.", "integration");
     await api.agentEnd()(event, ctx);
 
-    // An unknown capability must not cost the user their turn: nothing is stored
-    // server-side yet, so the first attempt goes out — just without the field.
-    expect(server.retainBodies).toHaveLength(1);
-    expect(server.retainBodies[0].operation_id).toBeUndefined();
+    // The durable outbox waits for capability detection before any send.
+    expect(server.retainBodies).toHaveLength(0);
     const queued = readQueue(queuePath);
     expect(queued).toHaveLength(1);
     expect(queued[0].operationId).toMatch(UUID_RE);
-
-    // The replay is the half that can duplicate, so it waits for a real answer.
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(server.retainBodies).toHaveLength(1);
+    expect(server.retainBodies).toHaveLength(0);
     expect(readQueue(queuePath)).toHaveLength(1);
 
     server.setCapability("supported");
+    await vi.advanceTimersByTimeAsync(1_000);
+    // First delivery loses its acknowledgement, so the exact identity survives.
+    expect(server.retainBodies).toHaveLength(1);
+    expect(server.retainBodies[0].operation_id).toBe(queued[0].operationId);
+    expect(readQueue(queuePath)).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(server.retainBodies).toHaveLength(2);
     expect(server.retainBodies[1].operation_id).toBe(queued[0].operationId);

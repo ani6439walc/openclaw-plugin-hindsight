@@ -293,6 +293,16 @@ Glob syntax:
 }
 ```
 
+### Durable conversation retention
+
+Auto-retain saves each eligible transcript before any API initialization or network request. Agent-scoped plugin instances enqueue only; the Gateway service delivers queued items on its existing timer (60 seconds by default, configurable with `retainQueueFlushIntervalMs`). A running service can also drain immediately after a turn.
+
+`retainQueuePath` remains the queue base path, defaulting to `~/.openclaw/data/hindsight-retain-queue.jsonl`. New items are private (`0600`) JSON files in the adjacent `<retainQueuePath>.d` directory. Existing JSONL entries are migrated, and the original file is preserved as `.migrated` for recovery. Stop older plugin versions before upgrading so they cannot continue writing the legacy JSONL.
+
+The worker removes an item only after the API accepts it. Initialization failures, request failures, and service retirement leave it available for the next retry or restart. The same operation ID is retained across attempts; servers supporting operation IDs can deduplicate a lost acknowledgement. Older servers cannot guarantee duplicate-free replay. Delivery means the asynchronous retain request was accepted, not that fact extraction has completed.
+
+If server capability detection is unavailable, items stay queued until it succeeds. If disk persistence fails, the plugin reports an error and lets the agent reply continue. `retainQueueMaxAgeMs` still controls optional expiration; the default keeps items indefinitely. Only one Gateway process should drain a queue directory.
+
 ## Retention details
 
 Retained documents use stable session-scoped IDs derived from the OpenClaw `sessionKey`. Every retain in a session shares one document id like `openclaw:agent:agentname:discord:channel:123`, so all turns of the conversation accumulate under a single Hindsight document (on legacy APIs without `update_mode: 'append'` support, the integration falls back to per-retain ids — `...:turn:<boot>:000001`, `...:window:<boot>:000002` for chunked retention — so prior turns aren't overwritten; `<boot>` is a token minted per host process, which keeps a restart from replaying ids the previous run already used). Retained documents include richer metadata such as `session_key`, `agent_id`, `provider`, `channel_id`, `thread_id`, `sender_id`, `turn_index`, and `retention_scope`. Each message in the retained JSON also carries a structured `timestamp` field (ISO 8601) lifted from OpenClaw's per-message time, so facts are not polluted by inline weekday/date prefixes.

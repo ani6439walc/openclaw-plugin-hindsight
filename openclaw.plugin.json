@@ -326,7 +326,7 @@
       },
       "retainQueuePath": {
         "type": "string",
-        "description": "Path to JSONL file for buffering failed retains. Default: ~/.openclaw/data/hindsight-retain-queue.jsonl"
+        "description": "Queue base path; durable entries are stored in the adjacent .d directory. Existing JSONL is migrated and archived. Default: ~/.openclaw/data/hindsight-retain-queue.jsonl"
       },
       "retainQueueMaxAgeMs": {
         "type": "number",
