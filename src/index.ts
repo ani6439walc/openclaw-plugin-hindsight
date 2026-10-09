@@ -426,13 +426,10 @@ export async function flushRetainQueue(
   let failed = 0;
 
   try {
-    // Nothing queued means nothing to be idempotent about, so don't spend a
-    // /version round trip: this runs on a timer *and* after every successful
-    // retain, and probing an empty queue put a request behind every turn. The
-    // capability is re-read here whenever there is actually work to replay,
-    // which is the only moment it changes the outcome.
-    const pending = activeQueue.size();
-    if (pending === 0) return;
+    // Read a bounded payload batch asynchronously from a filename snapshot.
+    // New producer entries are picked up by the next cycle.
+    const { items, pending } = await activeQueue.batch(50, signal);
+    if (expectedGeneration !== serviceGeneration || signal?.aborted || pending === 0) return;
     const capability =
       capabilityOverride ?? (await refreshQueueOperationIdCapability(expectedGeneration, signal));
     if (expectedGeneration !== serviceGeneration || signal?.aborted) return;
@@ -451,21 +448,19 @@ export async function flushRetainQueue(
     const activeClient = clientOverride ?? client;
     if (!activeClient) return;
 
-    // Cleanup expired items first
-    activeQueue.cleanup();
-
-    const items = activeQueue.peek(50);
     for (const item of items) {
       try {
         if (expectedGeneration !== serviceGeneration || signal?.aborted) return;
         const operationId =
           capability === "supported"
-            ? activeQueue.ensureOperationId(item.id, randomUUID())
+            ? item.operationId || activeQueue.ensureOperationId(item.id, randomUUID())
             : undefined;
+        if (capability === "supported" ? !operationId : !activeQueue.has(item.id)) continue;
         if (!clientOverride && currentPluginConfig) {
           await ensureBankDefaultsApplied(item.bankId, currentPluginConfig);
           if (expectedGeneration !== serviceGeneration || signal?.aborted) return;
         }
+        if (!activeQueue.has(item.id)) continue;
         await activeClient.retain(item.bankId, item.content, {
           documentId: item.documentId,
           context: item.context,
@@ -503,6 +498,9 @@ export async function flushRetainQueue(
     } else if (failed > 0) {
       debug(`[Hindsight] Queue flush: API still unreachable, ${remaining} retains pending`);
     }
+  } catch (error) {
+    if (expectedGeneration !== serviceGeneration || signal?.aborted) return;
+    throw error;
   } finally {
     flushOwners.delete(activeQueue.directory);
   }

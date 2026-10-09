@@ -241,7 +241,7 @@ describe("retain queue idempotent replay", () => {
 
     // The server saw the request and processed it; only the acknowledgement was
     // lost. Without an operation id the replay below would store it a second time.
-    expect(server.retainBodies).toHaveLength(1);
+    await vi.waitFor(() => expect(server.retainBodies).toHaveLength(1));
     const sentId = server.retainBodies[0].operation_id;
     expect(sentId).toMatch(UUID_RE);
 
@@ -256,9 +256,9 @@ describe("retain queue idempotent replay", () => {
     await secondService.start();
     await vi.advanceTimersByTimeAsync(1_000);
 
-    expect(server.retainBodies).toHaveLength(2);
+    await vi.waitFor(() => expect(server.retainBodies).toHaveLength(2));
     expect(server.retainBodies[1].operation_id).toBe(sentId);
-    expect(readQueue(queuePath)).toHaveLength(0);
+    await vi.waitFor(() => expect(readQueue(queuePath)).toHaveLength(0));
     await secondService.stop();
   });
 
@@ -287,11 +287,11 @@ describe("retain queue idempotent replay", () => {
     server.setCapability("supported");
     await vi.advanceTimersByTimeAsync(1_000);
     // First delivery loses its acknowledgement, so the exact identity survives.
-    expect(server.retainBodies).toHaveLength(1);
+    await vi.waitFor(() => expect(server.retainBodies).toHaveLength(1));
     expect(server.retainBodies[0].operation_id).toBe(queued[0].operationId);
     expect(readQueue(queuePath)).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(server.retainBodies).toHaveLength(2);
+    await vi.waitFor(() => expect(server.retainBodies).toHaveLength(2));
     expect(server.retainBodies[1].operation_id).toBe(queued[0].operationId);
     await service.stop();
   });
@@ -317,7 +317,7 @@ describe("retain queue idempotent replay", () => {
 
     await vi.advanceTimersByTimeAsync(5_000);
     expect(server.versionRequests()).toBe(afterFirstRetain);
-    expect(server.retainBodies).toHaveLength(2);
+    await vi.waitFor(() => expect(server.retainBodies).toHaveLength(2));
     await service.stop();
   });
 
@@ -343,7 +343,7 @@ describe("retain queue idempotent replay", () => {
     await timerAdvance;
 
     // The stopped generation must not resume against a restarted client.
-    expect(server.retainBodies).toHaveLength(1);
+    await vi.waitFor(() => expect(server.retainBodies).toHaveLength(1));
     expect(readQueue(queuePath)).toHaveLength(1);
   });
 });
@@ -428,7 +428,7 @@ describe("session_end flushes the un-retained tail (#4341)", () => {
       ctx
     );
 
-    expect(server.retainBodies).toHaveLength(1);
+    await vi.waitFor(() => expect(server.retainBodies).toHaveLength(1));
     expect(JSON.stringify(server.retainBodies[0])).toContain("The tail nobody retained.");
     await service.stop();
   });

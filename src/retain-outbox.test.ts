@@ -14,6 +14,12 @@ import type { HindsightClient } from "@vectorize-io/hindsight-client";
 import { flushRetainQueue } from "./index.js";
 import { RetainQueue } from "./retain-queue.js";
 
+vi.mock("fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("fs/promises")>();
+  return { ...actual, readFile: vi.fn(actual.readFile) };
+});
+import { readFile } from "fs/promises";
+
 const tempDirs: string[] = [];
 
 function makeQueuePath(): string {
@@ -126,7 +132,7 @@ describe("persistent retain outbox", () => {
       { retain } as unknown as HindsightClient,
       "supported",
     );
-    expect(retain).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(retain).toHaveBeenCalledTimes(1));
     const pendingId = producer.enqueue("bank-2", {
       content: "arrived during send",
     });
@@ -206,7 +212,13 @@ describe("persistent retain outbox", () => {
     );
     expect(retain).toHaveBeenCalledTimes(1);
     expect(queue.size()).toBe(0);
-    expect(existsSync(join(queue.directory, "invalid.json"))).toBe(true);
+    expect(existsSync(join(queue.directory, "invalid.json"))).toBe(false);
+    expect(existsSync(join(queue.directory, "invalid.json.corrupt"))).toBe(
+      true,
+    );
+    vi.mocked(readFile).mockClear();
+    expect(await queue.batch()).toEqual({ items: [], pending: 0 });
+    expect(readFile).not.toHaveBeenCalled();
   });
 
   it("prevents another worker from sending the same item while acknowledgement is pending", async () => {
@@ -225,6 +237,7 @@ describe("persistent retain outbox", () => {
     const client = { retain } as unknown as HindsightClient;
     const pending = flushRetainQueue(first, client, "supported");
     try {
+      await vi.waitFor(() => expect(retain).toHaveBeenCalledTimes(1));
       await flushRetainQueue(second, client, "supported");
       expect(retain).toHaveBeenCalledTimes(1);
     } finally {
@@ -232,5 +245,104 @@ describe("persistent retain outbox", () => {
       await pending;
     }
     expect(first.size()).toBe(0);
+  });
+  it("reads only one batch of payloads from a large backlog", async () => {
+    const queue = new RetainQueue({ filePath: makeQueuePath() });
+    for (let index = 0; index < 2_000; index++) {
+      queue.enqueue("bank-1", {
+        content: `queued ${index}`,
+        operationId: `operation-${index}`,
+      });
+    }
+    vi.mocked(readFile).mockClear();
+    const retain = vi.fn().mockResolvedValue({});
+    await flushRetainQueue(
+      queue,
+      { retain } as unknown as HindsightClient,
+      "supported",
+    );
+    expect(retain).toHaveBeenCalledTimes(50);
+    expect(readFile).toHaveBeenCalledTimes(50);
+    expect(queue.size()).toBe(1_950);
+    expect(retain.mock.calls[0][1]).toBe("queued 0");
+    expect(retain.mock.calls[49][1]).toBe("queued 49");
+  }, 30_000);
+
+  it("skips a snapshot item removed before operation identity assignment", async () => {
+    const queue = new RetainQueue({ filePath: makeQueuePath() });
+    queue.enqueue("bank-1", { content: "removed externally" });
+    queue.enqueue("bank-1", { content: "deliver this" });
+    const original = queue.ensureOperationId.bind(queue);
+    vi.spyOn(queue, "ensureOperationId").mockImplementationOnce(
+      (id, operationId) => {
+        queue.remove(id);
+        return original(id, operationId);
+      },
+    );
+    const retain = vi.fn().mockResolvedValue({});
+    await flushRetainQueue(
+      queue,
+      { retain } as unknown as HindsightClient,
+      "supported",
+    );
+    expect(retain).toHaveBeenCalledTimes(1);
+    expect(retain.mock.calls[0][1]).toBe("deliver this");
+    expect(queue.size()).toBe(0);
+  });
+  it("reads existing hash-only outbox files and checkpoints their identities", async () => {
+    const filePath = makeQueuePath();
+    const queue = new RetainQueue({ filePath });
+    const id = queue.enqueue("bank-1", {
+      content: "from the earlier outbox format",
+    });
+    const path = itemFilePath(filePath, id);
+    const hash = /([a-f0-9]{64}\.json)$/.exec(path)![1];
+    const { renameSync } = await import("fs");
+    renameSync(path, join(queue.directory, hash));
+    const recovered = new RetainQueue({ filePath });
+    const retain = vi.fn().mockResolvedValue({});
+    await flushRetainQueue(
+      recovered,
+      { retain } as unknown as HindsightClient,
+      "supported",
+    );
+    expect(retain).toHaveBeenCalledTimes(1);
+    expect(retain.mock.calls[0][2].operationId).toEqual(expect.any(String));
+    expect(recovered.size()).toBe(0);
+  });
+
+  it("expires old items in the asynchronous batch without dropping fresh entries", async () => {
+    const filePath = makeQueuePath();
+    const queue = new RetainQueue({ filePath, maxAgeMs: 60_000 });
+    const stale = queue.enqueue("bank-1", { content: "expired" });
+    const stalePath = itemFilePath(filePath, stale);
+    const item = JSON.parse(readFileSync(stalePath, "utf8"));
+    item.createdAt = "2020-01-01T00:00:00.000Z";
+    writeFileSync(stalePath, JSON.stringify(item));
+    queue.enqueue("bank-1", { content: "fresh" });
+    const batch = await queue.batch();
+    expect(batch.pending).toBe(1);
+    expect(batch.items.map((item) => item.content)).toEqual(["fresh"]);
+    expect(existsSync(stalePath)).toBe(false);
+  });
+  it("normalizes more than one batch of old filenames before choosing the oldest items", async () => {
+    const filePath = makeQueuePath();
+    const queue = new RetainQueue({ filePath });
+    const { renameSync } = await import("fs");
+    for (let index = 0; index < 51; index++) {
+      const id = queue.enqueue("bank-1", { content: `old ${index}` });
+      const path = itemFilePath(filePath, id);
+      const item = JSON.parse(readFileSync(path, "utf8"));
+      item.createdAt = new Date(
+        Date.UTC(2020, 0, 1, 0, 0, index),
+      ).toISOString();
+      writeFileSync(path, JSON.stringify(item));
+      const hash = /([a-f0-9]{64}\.json)$/.exec(path)![1];
+      renameSync(path, join(queue.directory, hash));
+    }
+    const recovered = new RetainQueue({ filePath });
+    expect((await recovered.batch()).items.map((item) => item.content)).toEqual(
+      Array.from({ length: 50 }, (_, index) => `old ${index}`),
+    );
   });
 });
