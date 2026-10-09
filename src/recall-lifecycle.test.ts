@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { HindsightClient } from "@vectorize-io/hindsight-client";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,6 +8,13 @@ import type { MoltbotPluginAPI, PluginHookAgentContext, ServiceConfig } from "./
 
 const emit = vi.hoisted(() => vi.fn());
 vi.mock("openclaw/plugin-sdk/agent-harness-runtime", () => ({ emitAgentEvent: emit }));
+
+let sdk: typeof import("openclaw/plugin-sdk/agent-harness-runtime");
+beforeAll(async () => {
+  sdk = await vi.importActual<typeof import("openclaw/plugin-sdk/agent-harness-runtime")>(
+    "openclaw/plugin-sdk/agent-harness-runtime"
+  );
+});
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -255,9 +262,6 @@ describe("automatic recall service lifecycle", () => {
     expect(emit.mock.calls[1][0].data.durationMs).toBe(0);
   });
   it("uses the host SDK when the scoped API disables global side effects", async () => {
-    const sdk = await vi.importActual<typeof import("openclaw/plugin-sdk/agent-harness-runtime")>(
-      "openclaw/plugin-sdk/agent-harness-runtime"
-    );
     const received: string[] = [];
     const unsubscribe = sdk.onAgentEvent((event) => {
       if (event.runId === ctx.runId && event.stream === "plugin:hindsight")

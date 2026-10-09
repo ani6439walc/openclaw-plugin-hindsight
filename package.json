@@ -1,14 +1,44 @@
 {
-  "name": "@ani6439walc/hindsight-openclaw",
-  "version": "0.13.0-discord.1",
+  "name": "@ani6439walc/openclaw-plugin-hindsight",
+  "displayName": "Hindsight",
   "description": "Hindsight memory plugin for OpenClaw - biomimetic long-term memory with fact extraction",
+  "version": "0.13.0",
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "license": "MIT",
+  "author": "Ani <ani6439walc@gmail.com>",
+  "contributors": [
+    "Wan, Jiun Wei <wei840222@gmail.com>"
+  ],
+  "homepage": "https://github.com/ani6439walc/openclaw-plugin-hindsight#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ani6439walc/openclaw-plugin-hindsight.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ani6439walc/openclaw-plugin-hindsight/issues"
+  },
+  "keywords": [
+    "openclaw",
+    "memory",
+    "ai",
+    "agent",
+    "hindsight",
+    "long-term-memory"
+  ],
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE",
+    "UPSTREAM.md"
+  ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
     "hindsight-openclaw-backfill": "dist/backfill.js",
     "hindsight-openclaw-setup": "dist/setup.js"
   },
-  "type": "module",
   "openclaw": {
     "extensions": [
       "./dist/index.js"
@@ -22,31 +52,9 @@
       "pluginSdkVersion": "2026.9.6"
     }
   },
-  "keywords": [
-    "openclaw",
-    "memory",
-    "ai",
-    "agent",
-    "hindsight",
-    "long-term-memory"
-  ],
-  "author": "Vectorize <support@vectorize.io>",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/ani6439walc/openclaw-plugin-hindsight.git"
-  },
-  "files": [
-    "dist",
-    "openclaw.plugin.json",
-    "README.md",
-    "LICENSE",
-    "UPSTREAM.md"
-  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "clean": "rm -rf dist",
     "prepack": "node scripts/pack-manifest.mjs strip",
     "postpack": "node scripts/pack-manifest.mjs restore",
     "backfill:help": "node dist/backfill.js --help",
@@ -56,11 +64,17 @@
     "prepublishOnly": "npm run clean && npm run build",
     "typecheck": "tsc --noEmit"
   },
+  "engines": {
+    "node": ">=24.16.0 <25 || >=26.1.0"
+  },
   "dependencies": {
     "@clack/prompts": "^1.2.0",
     "@vectorize-io/hindsight-agent-sdk": "^0.1.0",
     "@vectorize-io/hindsight-all": "^0.6.2",
     "@vectorize-io/hindsight-client": "^0.8.6"
+  },
+  "peerDependencies": {
+    "openclaw": "2026.9.6"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -68,20 +82,10 @@
     "typescript": "^5.3.0",
     "vitest": "^4.1.11"
   },
-  "engines": {
-    "node": ">=24.16.0 <25 || >=26.1.0"
-  },
   "overrides": {
     "rollup": "^4.59.0",
     "picomatch": ">=2.3.2 <3.0.0 || >=4.0.4",
     "vite": ">=8.0.5",
     "postcss": ">=8.5.23 <9.0.0"
-  },
-  "homepage": "https://github.com/ani6439walc/openclaw-plugin-hindsight#readme",
-  "bugs": {
-    "url": "https://github.com/ani6439walc/openclaw-plugin-hindsight/issues"
-  },
-  "peerDependencies": {
-    "openclaw": "2026.9.6"
   }
 }

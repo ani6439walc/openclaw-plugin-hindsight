@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, symlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -10,20 +10,18 @@ const managerStart = vi.fn();
 const managerStop = vi.fn();
 const managerGetBaseUrl = vi.fn(() => "http://127.0.0.1:9077");
 
-vi.mock("@vectorize-io/hindsight-all", async () => {
-  const actual = await vi.importActual<typeof import("@vectorize-io/hindsight-all")>(
-    "@vectorize-io/hindsight-all"
-  );
-  return {
-    ...actual,
-    HindsightServer: vi.fn(
-      class {
-        start = managerStart;
-        stop = managerStop;
-        getBaseUrl = managerGetBaseUrl;
-      }
-    ),
-  };
+vi.mock("@vectorize-io/hindsight-all", () => ({
+  HindsightServer: vi.fn(
+    class {
+      start = managerStart;
+      stop = managerStop;
+      getBaseUrl = managerGetBaseUrl;
+    }
+  ),
+}));
+
+beforeAll(async () => {
+  await import("./backfill.js");
 });
 
 afterEach(() => {
