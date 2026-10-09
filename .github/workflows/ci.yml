@@ -28,3 +28,15 @@ jobs:
       - run: npm pack --dry-run
       - name: Verify packing restored the manifest
         run: git diff --exit-code -- package.json package-lock.json
+
+  windows-queue:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Verify outbox filesystem behavior on Windows
+        run: npx vitest run src/retain-outbox.test.ts src/retain-queue.test.ts --maxWorkers=2

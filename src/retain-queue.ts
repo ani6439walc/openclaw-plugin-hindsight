@@ -1,24 +1,21 @@
-/**
- * JSONL-backed retain queue for buffering failed HTTP retains.
- *
- * When the Hindsight API is unreachable, retain requests are stashed in a local
- * JSONL file and flushed later. Used in both modes: a locally spawned daemon is
- * just as unreachable while it boots or after it crashes as a remote API is.
- *
- * Zero runtime dependencies; uses only Node built-ins.
- */
-
+/** Durable per-item retain outbox. Producers add files; the Gateway drains them. */
 import {
   readFileSync,
   writeFileSync,
-  appendFileSync,
   existsSync,
   renameSync,
   unlinkSync,
+  mkdirSync,
+  readdirSync,
+  openSync,
+  closeSync,
+  fsyncSync,
+  chmodSync
 } from "fs";
-import { randomBytes } from "crypto";
+import { readdir, readFile, rename, unlink } from "fs/promises";
+import { randomUUID, createHash } from "crypto";
+import { basename, dirname, join, resolve } from "path";
 
-/** The subset of a retain payload the queue needs to persist and replay. */
 export interface QueuedRetainPayload {
   content: string;
   documentId?: string;
@@ -28,143 +25,304 @@ export interface QueuedRetainPayload {
   operationId?: string;
   updateMode?: "replace" | "append";
 }
-
-export interface QueuedRetain {
+export interface QueuedRetain extends QueuedRetainPayload {
   id: string;
   bankId: string;
-  content: string;
   documentId: string;
-  context?: string;
   metadata: Record<string, unknown>;
-  tags?: string[];
-  operationId?: string;
-  updateMode?: "replace" | "append";
-  createdAt: string; // ISO 8601
+  createdAt: string;
+  createdOrder?: string;
 }
-
 export interface RetainQueueOptions {
-  /** Path to the JSONL queue file. The parent directory must already exist. */
+  /** Legacy JSONL path; new entries live in the adjacent `<filePath>.d` directory. */
   filePath: string;
-  /** Max age in ms for queued items. `-1` (default) keeps items forever. */
   maxAgeMs?: number;
+}
+function parseQueuedRetain(raw: string): QueuedRetain | undefined {
+  try {
+    const item = JSON.parse(raw);
+    if (
+      item &&
+      typeof item.id === "string" &&
+      typeof item.content === "string" &&
+      typeof item.bankId === "string" &&
+      typeof item.createdAt === "string" &&
+      Number.isFinite(Date.parse(item.createdAt)) &&
+      (item.createdOrder === undefined ||
+        (typeof item.createdOrder === "string" &&
+          /^\d{30}$/.test(item.createdOrder)))
+    )
+      return item;
+  } catch {
+    /* preserve invalid data for recovery */
+  }
+  return undefined;
+}
+function compareQueuedRetains(a: QueuedRetain, b: QueuedRetain): number {
+  return (
+    a.createdAt.localeCompare(b.createdAt) ||
+    (a.createdOrder ?? a.id).localeCompare(b.createdOrder ?? b.id)
+  );
 }
 
 export class RetainQueue {
-  private readonly filePath: string;
+  readonly directory: string;
   private readonly maxAgeMs: number;
-  private cachedSize: number;
-
+  private readonly files = new Map<string, string>();
   constructor(opts: RetainQueueOptions) {
-    this.filePath = opts.filePath;
+    this.directory = resolve(opts.filePath + ".d");
     this.maxAgeMs = opts.maxAgeMs ?? -1;
-    this.cachedSize = this.readAll().length;
+    mkdirSync(this.directory, { recursive: true, mode: 0o700 });
+    this.syncDirectory(dirname(this.directory));
+    // Stable filenames let an interrupted migration resume without duplicating rows.
+    if (existsSync(opts.filePath)) {
+      for (const line of readFileSync(opts.filePath, "utf8").split("\n")) {
+        const item = parseQueuedRetain(line);
+        if (!item) continue;
+        if (!existsSync(this.path(item.id))) this.write(item);
+      }
+      // Keep the original (including malformed lines) for recovery.
+      try {
+        if (process.platform !== "win32") chmodSync(opts.filePath, 0o600);
+        renameSync(
+          opts.filePath,
+          opts.filePath +
+            (existsSync(opts.filePath + ".migrated")
+              ? `.migrated-${randomUUID()}`
+              : ".migrated")
+        );
+        this.syncDirectory(dirname(resolve(opts.filePath)));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
   }
-
-  /** Append a failed retain for later delivery. */
-  enqueue(bankId: string, request: QueuedRetainPayload, metadata?: Record<string, unknown>): void {
+  enqueue(
+    bankId: string,
+    request: QueuedRetainPayload,
+    metadata?: Record<string, unknown>
+  ): string {
     const item: QueuedRetain = {
-      id: `${Date.now()}-${randomBytes(4).toString("hex")}`,
+      ...request,
+      id: randomUUID(),
       bankId,
-      content: request.content,
       documentId: request.documentId || "conversation",
-      context: request.context,
       metadata: metadata || request.metadata || {},
-      tags: request.tags,
-      operationId: request.operationId,
-      updateMode: request.updateMode,
       createdAt: new Date().toISOString(),
+      createdOrder: process.hrtime.bigint().toString().padStart(30, "0")
     };
-    appendFileSync(this.filePath, JSON.stringify(item) + "\n", "utf8");
-    this.cachedSize++;
+    this.write(item);
+    return item.id;
   }
-
-  /** Get up to `limit` oldest pending items (FIFO). */
   peek(limit = 50): QueuedRetain[] {
-    return this.readAll().slice(0, limit);
+    return this.readAll().sort(compareQueuedRetains).slice(0, limit);
+  }
+  /** One asynchronous snapshot per worker cycle; producers can keep adding files. */
+  async batch(
+    limit = 50,
+    signal?: AbortSignal
+  ): Promise<{ items: QueuedRetain[]; pending: number }> {
+    signal?.throwIfAborted();
+    let names = (await readdir(this.directory)).filter((name) =>
+      name.endsWith(".json")
+    );
+    // One-time normalization preserves global FIFO for older hash-only files.
+    // All I/O yields; subsequent cycles read only the selected payload batch.
+    let normalized = false;
+    for (let index = 0; index < names.length; index++) {
+      signal?.throwIfAborted();
+      const name = names[index];
+      if (this.isOrderedName(name)) continue;
+      const path = join(this.directory, name);
+      try {
+        const item = parseQueuedRetain(
+          await readFile(path, { encoding: "utf8", signal })
+        );
+        signal?.throwIfAborted();
+        if (!item) {
+          await rename(path, path + ".corrupt");
+          names[index] = "";
+        } else {
+          const target = this.orderedPath(item);
+          await rename(path, target);
+          names[index] = basename(target);
+        }
+        normalized = true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        names[index] = "";
+      }
+    }
+    if (normalized) this.syncDirectory();
+    names = names.filter(Boolean).sort();
+    this.indexFiles(names);
+    const items: QueuedRetain[] = [];
+    let pending = names.length;
+    const cutoff = this.maxAgeMs < 0 ? -Infinity : Date.now() - this.maxAgeMs;
+    for (const name of names) {
+      signal?.throwIfAborted();
+      if (items.length >= limit) break;
+      const path = join(this.directory, name);
+      let raw: string;
+      try {
+        raw = await readFile(path, { encoding: "utf8", signal });
+        signal?.throwIfAborted();
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          pending--;
+          continue;
+        }
+        throw error;
+      }
+      const item = parseQueuedRetain(raw);
+      if (!item) {
+        try {
+          await rename(path, path + ".corrupt");
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+        pending--;
+      } else {
+        this.files.set(this.hash(item.id), path);
+        if (Date.parse(item.createdAt) < cutoff) {
+          try {
+            await unlink(path);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          }
+          pending--;
+        } else {
+          items.push(item);
+        }
+      }
+    }
+    return { items: items.sort(compareQueuedRetains), pending };
   }
 
-  /** Remove a single item by id. */
   remove(id: string): void {
-    const items = this.readAll().filter((i) => i.id !== id);
-    this.writeAll(items);
+    try {
+      unlinkSync(this.path(id));
+      this.syncDirectory();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
-
-  /** Remove multiple items by id in a single file rewrite. */
   removeMany(ids: string[]): void {
-    const idSet = new Set(ids);
-    const items = this.readAll().filter((i) => !idSet.has(i.id));
-    this.writeAll(items);
+    for (const id of ids) this.remove(id);
   }
-
-  /** Persist a replay identity before the request is sent. */
-  ensureOperationId(id: string, operationId: string): string {
-    const items = this.readAll();
-    const item = items.find((queued) => queued.id === id);
-    if (!item) {
-      throw new Error(`queued retain not found: ${id}`);
+  ensureOperationId(id: string, operationId: string): string | undefined {
+    let raw: string;
+    try {
+      raw = readFileSync(this.path(id), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
     }
-    if (typeof item.operationId === "string" && item.operationId.length > 0) {
-      return item.operationId;
-    }
+    const item = parseQueuedRetain(raw);
+    if (!item) return undefined;
+    if (item.operationId) return item.operationId;
     item.operationId = operationId;
-    // The synchronous atomic rewrite must complete before the caller can send
-    // the request; otherwise another lost acknowledgement would lose this ID.
-    this.writeAll(items);
+    this.write(item);
     return operationId;
   }
-
-  /** Number of items waiting (cached, O(1)). */
-  size(): number {
-    return this.cachedSize;
+  has(id: string): boolean {
+    return existsSync(this.path(id));
   }
-
-  /** Drop items older than `maxAgeMs`. No-op when `maxAgeMs < 0`. */
+  /** Candidate count; malformed candidates are quarantined by the next scan. */
+  size(): number {
+    return readdirSync(this.directory).filter((name) => name.endsWith(".json"))
+      .length;
+  }
   cleanup(): number {
     if (this.maxAgeMs < 0) return 0;
-    const cutoff = Date.now() - this.maxAgeMs;
-    const items = this.readAll();
-    const kept = items.filter((i) => new Date(i.createdAt).getTime() >= cutoff);
-    const removed = items.length - kept.length;
-    if (removed > 0) this.writeAll(kept);
-    return removed;
+    const expired = this.readAll().filter(
+      (item) => new Date(item.createdAt).getTime() < Date.now() - this.maxAgeMs
+    );
+    this.removeMany(expired.map((item) => item.id));
+    return expired.length;
   }
-
-  /** No-op — kept for API symmetry with DB-backed queues. */
-  close(): void {
-    /* nothing to close */
+  close(): void {}
+  private hash(id: string): string {
+    return createHash("sha256").update(id).digest("hex");
   }
-
-  // -------------------------------------------------------------------------
-
+  private orderedPath(item: QueuedRetain): string {
+    return join(
+      this.directory,
+      `${String(Date.parse(item.createdAt)).padStart(16, "0")}-${item.createdOrder ?? "0".repeat(30)}-${this.hash(item.id)}.json`
+    );
+  }
+  private isOrderedName(name: string): boolean {
+    return /^\d{16}-\d{30}-[a-f0-9]{64}\.json$/.test(name);
+  }
+  private indexFiles(names: string[]): void {
+    this.files.clear();
+    for (const name of names) {
+      const hash = /([a-f0-9]{64})\.json$/.exec(name)?.[1];
+      if (hash) this.files.set(hash, join(this.directory, name));
+    }
+  }
+  private path(id: string): string {
+    const hash = this.hash(id);
+    let path = this.files.get(hash);
+    if (!path) {
+      this.indexFiles(readdirSync(this.directory));
+      path = this.files.get(hash);
+    }
+    return path ?? join(this.directory, hash + ".json");
+  }
   private readAll(): QueuedRetain[] {
-    if (!existsSync(this.filePath)) return [];
-    const content = readFileSync(this.filePath, "utf8").trim();
-    if (!content) return [];
     const items: QueuedRetain[] = [];
-    for (const line of content.split("\n")) {
+    const names = readdirSync(this.directory);
+    this.indexFiles(names);
+    for (const name of names) {
+      if (!name.endsWith(".json")) continue;
+      let raw: string;
       try {
-        items.push(JSON.parse(line) as QueuedRetain);
-      } catch {
-        // skip malformed lines
+        raw = readFileSync(join(this.directory, name), "utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      const item = parseQueuedRetain(raw);
+      if (item) {
+        this.files.set(this.hash(item.id), join(this.directory, name));
+        items.push(item);
+      } else {
+        const path = join(this.directory, name);
+        try {
+          renameSync(path, path + ".corrupt");
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
       }
     }
     return items;
   }
-
-  /** Atomically rewrite the file with the given items. */
-  private writeAll(items: QueuedRetain[]): void {
-    if (items.length === 0) {
-      try {
-        unlinkSync(this.filePath);
-      } catch {
-        /* already gone */
-      }
-      this.cachedSize = 0;
-      return;
+  private write(item: QueuedRetain): void {
+    const temporary = join(this.directory, randomUUID() + ".tmp");
+    const fd = openSync(temporary, "wx", 0o600);
+    try {
+      writeFileSync(fd, JSON.stringify(item) + "\n", "utf8");
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
     }
-    const tmpPath = this.filePath + ".tmp";
-    writeFileSync(tmpPath, items.map((i) => JSON.stringify(i)).join("\n") + "\n", "utf8");
-    renameSync(tmpPath, this.filePath);
-    this.cachedSize = items.length;
+    const hash = this.hash(item.id);
+    const target = this.files.get(hash) ?? this.orderedPath(item);
+    renameSync(temporary, target);
+    this.files.set(hash, target);
+    // Persist the directory entry too, so a committed enqueue survives a crash.
+    this.syncDirectory();
+  }
+  private syncDirectory(directory = this.directory): void {
+    // Node cannot open directory handles on Windows. File fsync still runs;
+    // POSIX directory errors must propagate rather than hide durability failures.
+    if (process.platform === "win32") return;
+    const dir = openSync(directory, "r");
+    try {
+      fsyncSync(dir);
+    } finally {
+      closeSync(dir);
+    }
   }
 }
