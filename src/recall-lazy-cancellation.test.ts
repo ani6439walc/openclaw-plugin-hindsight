@@ -8,7 +8,11 @@ let directory: string;
 let service: ServiceConfig;
 let hook: Parameters<MoltbotPluginAPI["on"]>[1];
 let Client: typeof import("@vectorize-io/hindsight-client").HindsightClient;
-const memory = { results: [{ id: "fixture", text: "A fixture observation", type: "observation" }] };
+const memory = {
+  results: [
+    { id: "fixture", text: "A fixture observation", type: "observation" },
+  ],
+};
 const ctx = {
   agentId: "main",
   sessionKey: "agent:main:telegram:direct:test-user",
@@ -35,15 +39,15 @@ beforeEach(async () => {
             api_version: "0.10.0",
             features: { store_document_text: true },
           }),
-          { headers: { "Content-Type": "application/json" } }
-        )
-    )
+          { headers: { "Content-Type": "application/json" } },
+        ),
+    ),
   );
   const api: MoltbotPluginAPI = {
     config: {
       plugins: {
         entries: {
-          "hindsight": {
+          hindsight: {
             config: {
               hindsightApiUrl: "http://localhost:8888",
               bankId: "test-bank",
@@ -78,7 +82,9 @@ afterEach(async () => {
 it("preserves external-API lazy recall before service.start", async () => {
   vi.spyOn(Client.prototype, "recall").mockResolvedValue(memory as never);
   expect(await recall()).toEqual(
-    expect.objectContaining({ prependContext: expect.stringContaining("A fixture observation") })
+    expect.objectContaining({
+      prependContext: expect.stringContaining("A fixture observation"),
+    }),
   );
 });
 
@@ -102,5 +108,5 @@ it.each(["start", "stop"] as const)(
     expect(signal?.aborted).toBe(true);
     finish(memory);
     expect(await pending).toBeUndefined();
-  }
+  },
 );

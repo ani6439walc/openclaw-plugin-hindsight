@@ -10,7 +10,8 @@ const typesPath = resolve(__dirname, "types.ts");
 function extractPluginConfigKeys(): Set<string> {
   const src = readFileSync(typesPath, "utf-8");
   const block = src.match(/export interface PluginConfig\s*\{([\s\S]*?)^\}/m);
-  if (!block) throw new Error("Could not locate PluginConfig interface in types.ts");
+  if (!block)
+    throw new Error("Could not locate PluginConfig interface in types.ts");
   // Capture identifier before `?:` or `:` at the start of a property line.
   // Matches lines like `  fooBar?: number;` and skips JSDoc / nested objects.
   const keys = new Set<string>();
@@ -36,7 +37,9 @@ describe("openclaw.plugin.json", () => {
 
   it("defaults recalled memories to user context", () => {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
-    expect(manifest.configSchema.properties.recallInjectionPosition.default).toBe("user");
+    expect(
+      manifest.configSchema.properties.recallInjectionPosition.default,
+    ).toBe("user");
   });
 
   it("declares every PluginConfig field in configSchema and uiHints", () => {
@@ -45,7 +48,9 @@ describe("openclaw.plugin.json", () => {
     // for fields the plugin actually accepts. (#1443 was the same drift class
     // applied to our internal whitelist.)
     const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
-    const schemaKeys = new Set<string>(Object.keys(manifest.configSchema.properties));
+    const schemaKeys = new Set<string>(
+      Object.keys(manifest.configSchema.properties),
+    );
     const uiKeys = new Set<string>(Object.keys(manifest.uiHints ?? {}));
     const typeKeys = extractPluginConfigKeys();
 
@@ -53,8 +58,16 @@ describe("openclaw.plugin.json", () => {
     const missingFromUi = [...typeKeys].filter((k) => !uiKeys.has(k));
     const extraInSchema = [...schemaKeys].filter((k) => !typeKeys.has(k));
 
-    expect(missingFromSchema, "PluginConfig fields missing from configSchema").toEqual([]);
-    expect(missingFromUi, "PluginConfig fields missing from uiHints").toEqual([]);
-    expect(extraInSchema, "configSchema declares fields not in PluginConfig").toEqual([]);
+    expect(
+      missingFromSchema,
+      "PluginConfig fields missing from configSchema",
+    ).toEqual([]);
+    expect(missingFromUi, "PluginConfig fields missing from uiHints").toEqual(
+      [],
+    );
+    expect(
+      extraInSchema,
+      "configSchema declares fields not in PluginConfig",
+    ).toEqual([]);
   });
 });

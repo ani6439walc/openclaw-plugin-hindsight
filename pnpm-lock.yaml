@@ -4,6 +4,8 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+packageExtensionsChecksum: sha256-hKJr/q1zWB/NbOUrBaPOQ9mHB+4ijSrYIT2aMlzjp14=
+
 importers:
 
   .:
@@ -24,12 +26,18 @@ importers:
         specifier: 2026.9.9
         version: 2026.9.9(undici@8.10.2)
     devDependencies:
+      '@openclaw/proxyline':
+        specifier: 0.3.12
+        version: 0.3.12(undici@8.10.2)
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.43
       '@vitest/ui':
         specifier: ^4.1.11
         version: 4.1.11(vitest@4.1.11)
+      prettier:
+        specifier: 3.9.6
+        version: 3.9.6
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
@@ -527,6 +535,12 @@ packages:
   '@openclaw/fs-safe@0.21.1':
     resolution: {integrity: sha512-jkowVEniLZBi203tncmZTvh0Cbby0rhKaPIaWFo7F+qiABOsE/6lsPATVyyqzrcj/t+FqFADhwXKsrlw5UJL1Q==}
     engines: {node: '>=22'}
+
+  '@openclaw/proxyline@0.3.12':
+    resolution: {integrity: sha512-KPUvtLgORF0NWxiuUPwHBuxYhUsFgxnOm8+XkDR0on236lnfMF44A5BnOvBkeDV8wrBaGHs/rQ8kt1tB4WNhmw==}
+    engines: {node: '>=22.19.0'}
+    peerDependencies:
+      undici: '>=8.5.0 <9'
 
   '@opentelemetry/semantic-conventions@1.43.0':
     resolution: {integrity: sha512-eSYWTm620tTk45EKSedaUL8MFYI8hW164hIXsgIHyxu3VobUB3fFCu5t0hQby6OoWRPsG1KkKUG2M5UadiLiVg==}
@@ -1833,6 +1847,11 @@ packages:
     resolution: {integrity: sha512-49cGhUbXj8Qenv0iTMxA1cFBzxXoctpC9Ujd77t1WcbJIr6nF/eI7g/8MgxrYldFRuAXvja7xQRwavoW7kgrxQ==}
     engines: {node: ^10 || ^12 || >=14}
 
+  prettier@3.9.6:
+    resolution: {integrity: sha512-OpN0zzVdiaiAhxpuuj5efpIS4sY9j7bY6uR5mnj5yPzGkdkjNKSJeUThPb60Jw29QuAZgA4o+/iB49kFiaBX6g==}
+    engines: {node: '>=14'}
+    hasBin: true
+
   pretty-ms@9.3.1:
     resolution: {integrity: sha512-HzMy3Geq23nVALD/M2LliU+F+M+gVNsvkQWWqeBZ8HDiCgzo6YPJ/Omrmtq24EFrIsk0a3EkQGEd7bDOo+IhGA==}
     engines: {node: '>=18'}
@@ -2701,6 +2720,10 @@ snapshots:
       '@openclaw/fs-safe-linux-x64-musl': 0.21.1
       '@openclaw/fs-safe-win32-x64-msvc': 0.21.1
       jszip: 3.10.2
+
+  '@openclaw/proxyline@0.3.12(undici@8.10.2)':
+    dependencies:
+      undici: 8.10.2
 
   '@opentelemetry/semantic-conventions@1.43.0': {}
 
@@ -3872,6 +3895,8 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.2
 
+  prettier@3.9.6: {}
+
   pretty-ms@9.3.1:
     dependencies:
       parse-ms: 4.0.0
@@ -4174,8 +4199,7 @@ snapshots:
 
   undici-types@6.21.0: {}
 
-  undici@8.10.2:
-    optional: true
+  undici@8.10.2: {}
 
   unicorn-magic@0.3.0: {}
 

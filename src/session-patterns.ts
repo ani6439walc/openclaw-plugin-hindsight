@@ -18,6 +18,9 @@ export function compileSessionPatterns(patterns: string[]): RegExp[] {
 }
 
 /** Check whether a session key matches any compiled ignore pattern. */
-export function matchesSessionPattern(sessionKey: string, patterns: RegExp[]): boolean {
+export function matchesSessionPattern(
+  sessionKey: string,
+  patterns: RegExp[],
+): boolean {
   return patterns.some((pattern) => pattern.test(sessionKey));
 }

@@ -27,14 +27,16 @@ const __dirname = dirname(__filename);
 // Test configuration (driven by environment variables)
 // ---------------------------------------------------------------------------
 
-const HINDSIGHT_API_URL = process.env.HINDSIGHT_API_URL || "http://localhost:8888";
+const HINDSIGHT_API_URL =
+  process.env.HINDSIGHT_API_URL || "http://localhost:8888";
 const LLM_PROVIDER = process.env.HINDSIGHT_API_LLM_PROVIDER || "";
 const LLM_API_KEY = process.env.HINDSIGHT_API_LLM_API_KEY || "";
 const LLM_MODEL = process.env.HINDSIGHT_API_LLM_MODEL || "";
 
 // Embed package path – defaults to the sibling hindsight-embed directory in the repo
 const EMBED_PACKAGE_PATH =
-  process.env.HINDSIGHT_EMBED_PACKAGE_PATH || join(__dirname, "..", "..", "..", "hindsight-embed");
+  process.env.HINDSIGHT_EMBED_PACKAGE_PATH ||
+  join(__dirname, "..", "..", "..", "hindsight-embed");
 
 // Port for the test embed daemon (different from production default 9077 to avoid conflicts)
 const EMBED_TEST_PORT = 19077;
@@ -51,7 +53,9 @@ async function waitForApi(url: string, maxMs = 5000): Promise<boolean> {
   const deadline = Date.now() + maxMs;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(1000) });
+      const res = await fetch(`${url}/health`, {
+        signal: AbortSignal.timeout(1000),
+      });
       if (res.ok) return true;
     } catch {
       // not ready yet
@@ -73,7 +77,7 @@ describe("openclaw integration — HTTP mode", () => {
     if (!reachable) {
       throw new Error(
         `Hindsight API not reachable at ${HINDSIGHT_API_URL}. ` +
-          "Start the server before running integration tests."
+          "Start the server before running integration tests.",
       );
     }
 
@@ -91,7 +95,7 @@ describe("openclaw integration — HTTP mode", () => {
         documentId: "http-retain-test-1",
         metadata: { channel_type: "slack", sender_id: "U001" },
         async: true,
-      }
+      },
     );
 
     expect(response).toBeDefined();
@@ -103,7 +107,7 @@ describe("openclaw integration — HTTP mode", () => {
     const response = await client.retain(
       bankId,
       "[role: user]\nI work at TechCorp as a software engineer.\n[user:end]",
-      { async: true }
+      { async: true },
     );
 
     expect(response).toBeDefined();
@@ -111,16 +115,22 @@ describe("openclaw integration — HTTP mode", () => {
 
   it("should recall from an empty bank without error", async () => {
     const bankId = randomBankId();
-    const response = await client.recall(bankId, "What do I like?", { maxTokens: 512 });
+    const response = await client.recall(bankId, "What do I like?", {
+      maxTokens: 512,
+    });
     expect(response).toBeDefined();
     expect(Array.isArray(response.results)).toBe(true);
   });
 
   it("should set bank mission via createBank after retain creates the bank", async () => {
     const bankId = randomBankId();
-    await client.retain(bankId, "[role: user]\nHello\n[user:end]", { async: true });
+    await client.retain(bankId, "[role: user]\nHello\n[user:end]", {
+      async: true,
+    });
     await expect(
-      client.createBank(bankId, { reflectMission: "You are a helpful AI assistant." })
+      client.createBank(bankId, {
+        reflectMission: "You are a helpful AI assistant.",
+      }),
     ).resolves.toBeDefined();
   });
 
@@ -131,12 +141,16 @@ describe("openclaw integration — HTTP mode", () => {
       bankId,
       "[role: user]\nMy favorite programming language is Python.\n[user:end]\n\n" +
         "[role: assistant]\nPython is a great choice!\n[assistant:end]",
-      { documentId: `session-${Date.now()}`, async: true }
+      { documentId: `session-${Date.now()}`, async: true },
     );
 
-    const response = await client.recall(bankId, "What programming language do I like?", {
-      maxTokens: 1024,
-    });
+    const response = await client.recall(
+      bankId,
+      "What programming language do I like?",
+      {
+        maxTokens: 1024,
+      },
+    );
 
     expect(response).toBeDefined();
     expect(Array.isArray(response.results)).toBe(true);
@@ -144,7 +158,9 @@ describe("openclaw integration — HTTP mode", () => {
 
   it("should use custom maxTokens in recall request", async () => {
     const bankId = randomBankId();
-    const response = await client.recall(bankId, "anything", { maxTokens: 256 });
+    const response = await client.recall(bankId, "anything", {
+      maxTokens: 256,
+    });
     expect(response).toBeDefined();
     expect(Array.isArray(response.results)).toBe(true);
   });
@@ -156,10 +172,12 @@ describe("openclaw integration — HTTP mode", () => {
       bankId,
       "[role: user]\nI enjoy reading science fiction books.\n[user:end]\n\n" +
         "[role: assistant]\nSounds like a great hobby!\n[assistant:end]",
-      { documentId: "mapping-test", async: true }
+      { documentId: "mapping-test", async: true },
     );
 
-    const response = await client.recall(bankId, "What are my hobbies?", { maxTokens: 1024 });
+    const response = await client.recall(bankId, "What are my hobbies?", {
+      maxTokens: 1024,
+    });
 
     for (const result of response.results) {
       expect(typeof result.id).toBe("string");
@@ -182,7 +200,7 @@ describe("openclaw integration — embed mode", () => {
     if (!hasEmbedCredentials) {
       console.warn(
         "[Integration] Skipping embed mode tests: " +
-          "HINDSIGHT_API_LLM_PROVIDER and HINDSIGHT_API_LLM_API_KEY must both be set."
+          "HINDSIGHT_API_LLM_PROVIDER and HINDSIGHT_API_LLM_API_KEY must both be set.",
       );
       return;
     }
@@ -218,7 +236,7 @@ describe("openclaw integration — embed mode", () => {
       bankId,
       "[role: user]\nI love hiking in the mountains.\n[user:end]\n\n" +
         "[role: assistant]\nSounds adventurous!\n[assistant:end]",
-      { documentId: "embed-retain-test-1", async: true }
+      { documentId: "embed-retain-test-1", async: true },
     );
     expect(response).toBeDefined();
   }, 60_000);
@@ -226,7 +244,9 @@ describe("openclaw integration — embed mode", () => {
   it("should recall from an empty bank against the local daemon", async () => {
     if (!hasEmbedCredentials) return;
     const bankId = randomBankId();
-    const response = await client.recall(bankId, "What do I like?", { maxTokens: 512 });
+    const response = await client.recall(bankId, "What do I like?", {
+      maxTokens: 512,
+    });
     expect(response).toBeDefined();
     expect(Array.isArray(response.results)).toBe(true);
   }, 60_000);
@@ -235,9 +255,13 @@ describe("openclaw integration — embed mode", () => {
     if (!hasEmbedCredentials) return;
     const bankId = randomBankId();
     // Create bank by retaining first, then set mission
-    await client.retain(bankId, "[role: user]\nHello\n[user:end]", { async: true });
+    await client.retain(bankId, "[role: user]\nHello\n[user:end]", {
+      async: true,
+    });
     await expect(
-      client.createBank(bankId, { reflectMission: "Test mission for embed integration tests." })
+      client.createBank(bankId, {
+        reflectMission: "Test mission for embed integration tests.",
+      }),
     ).resolves.toBeDefined();
   }, 60_000);
 
@@ -248,9 +272,11 @@ describe("openclaw integration — embed mode", () => {
       bankId,
       "[role: user]\nMy cat is named Whiskers and she is 3 years old.\n[user:end]\n\n" +
         "[role: assistant]\nWhat a lovely name!\n[assistant:end]",
-      { documentId: `embed-e2e-${Date.now()}`, async: true }
+      { documentId: `embed-e2e-${Date.now()}`, async: true },
     );
-    const response = await client.recall(bankId, "What is my cat's name?", { maxTokens: 1024 });
+    const response = await client.recall(bankId, "What is my cat's name?", {
+      maxTokens: 1024,
+    });
     expect(response).toBeDefined();
     expect(Array.isArray(response.results)).toBe(true);
   }, 60_000);

@@ -25,13 +25,16 @@ function writeSession(
   agentId: string,
   fileName: string,
   lines: unknown[],
-  archive = false
+  archive = false,
 ) {
   const dir = archive
     ? join(root, "agents", agentId, "sessions-archive-from-migration_backup")
     : join(root, "agents", agentId, "sessions");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, fileName), lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+  writeFileSync(
+    join(dir, fileName),
+    lines.map((line) => JSON.stringify(line)).join("\n") + "\n",
+  );
 }
 
 afterEach(() => {
@@ -46,7 +49,7 @@ describe("backfill planning", () => {
     writeOpenClawConfig(root, {
       plugins: {
         entries: {
-          "hindsight": {
+          hindsight: {
             config: {
               dynamicBankId: true,
               dynamicBankGranularity: ["agent", "provider", "channel"],
@@ -56,7 +59,11 @@ describe("backfill planning", () => {
       },
     });
     writeSession(root, "proj-run", "one.jsonl", [
-      { type: "session", id: "session-1", sessionKey: "agent:proj-run:discord:channel:123" },
+      {
+        type: "session",
+        id: "session-1",
+        sessionKey: "agent:proj-run:discord:channel:123",
+      },
       { type: "message", message: { role: "user", content: "hello" } },
       { type: "message", message: { role: "assistant", content: "world" } },
     ]);
@@ -80,16 +87,22 @@ describe("backfill planning", () => {
           sessionKey: "agent:proj-run:discord:channel:123",
           messages: [],
         },
-        result.entries[0].bankId
-      )
+        result.entries[0].bankId,
+      ),
     );
   });
 
   it("supports migration overrides for agent-only banks", () => {
     const root = makeTempRoot();
-    writeOpenClawConfig(root, { plugins: { entries: { "hindsight": { config: {} } } } });
+    writeOpenClawConfig(root, {
+      plugins: { entries: { hindsight: { config: {} } } },
+    });
     writeSession(root, "proj-debug", "two.jsonl", [
-      { type: "session", id: "session-2", sessionKey: "agent:proj-debug:discord:group:abc" },
+      {
+        type: "session",
+        id: "session-2",
+        sessionKey: "agent:proj-debug:discord:group:abc",
+      },
       { type: "message", message: { role: "user", content: "hello" } },
       { type: "message", message: { role: "assistant", content: "world" } },
     ]);
@@ -107,7 +120,9 @@ describe("backfill planning", () => {
 
   it("can exclude archive sessions", () => {
     const root = makeTempRoot();
-    writeOpenClawConfig(root, { plugins: { entries: { "hindsight": { config: {} } } } });
+    writeOpenClawConfig(root, {
+      plugins: { entries: { hindsight: { config: {} } } },
+    });
     writeSession(root, "main", "live.jsonl", [
       { type: "session", id: "live" },
       { type: "message", message: { role: "user", content: "live" } },
@@ -122,7 +137,7 @@ describe("backfill planning", () => {
         { type: "message", message: { role: "user", content: "archived" } },
         { type: "message", message: { role: "assistant", content: "reply" } },
       ],
-      true
+      true,
     );
 
     const config = loadPluginConfigFromOpenClawRoot(root);

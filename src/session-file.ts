@@ -27,9 +27,12 @@ function extractTextContent(content: unknown): string {
   if (Array.isArray(content)) {
     return content
       .filter(
-        (block): block is { type?: string; text?: string } => !!block && typeof block === "object"
+        (block): block is { type?: string; text?: string } =>
+          !!block && typeof block === "object",
       )
-      .filter((block) => block.type === "text" && typeof block.text === "string")
+      .filter(
+        (block) => block.type === "text" && typeof block.text === "string",
+      )
       .map((block) => block.text || "")
       .join("\n");
   }
@@ -45,7 +48,10 @@ function readJsonLines(filePath: string): unknown[] {
     .map((line) => JSON.parse(line));
 }
 
-export function parseSessionFile(filePath: string, agentId: string): ParsedSessionFile {
+export function parseSessionFile(
+  filePath: string,
+  agentId: string,
+): ParsedSessionFile {
   const records = readJsonLines(filePath) as Array<Record<string, any>>;
   let sessionId =
     filePath
@@ -59,16 +65,27 @@ export function parseSessionFile(filePath: string, agentId: string): ParsedSessi
   for (const record of records) {
     if (record.type === "session") {
       sessionId = typeof record.id === "string" ? record.id : sessionId;
-      startedAt = typeof record.timestamp === "string" ? record.timestamp : startedAt;
-      sessionKey = typeof record.sessionKey === "string" ? record.sessionKey : sessionKey;
+      startedAt =
+        typeof record.timestamp === "string" ? record.timestamp : startedAt;
+      sessionKey =
+        typeof record.sessionKey === "string" ? record.sessionKey : sessionKey;
       continue;
     }
-    if (record.type !== "message" || !record.message || typeof record.message !== "object") {
+    if (
+      record.type !== "message" ||
+      !record.message ||
+      typeof record.message !== "object"
+    ) {
       continue;
     }
     const message = record.message as Record<string, unknown>;
     const role = message.role;
-    if (role !== "user" && role !== "assistant" && role !== "system" && role !== "tool") {
+    if (
+      role !== "user" &&
+      role !== "assistant" &&
+      role !== "system" &&
+      role !== "tool"
+    ) {
       continue;
     }
     const text = extractTextContent(message.content);
@@ -77,7 +94,10 @@ export function parseSessionFile(filePath: string, agentId: string): ParsedSessi
     }
     messages.push({
       role,
-      content: typeof message.content === "string" ? message.content : [{ type: "text", text }],
+      content:
+        typeof message.content === "string"
+          ? message.content
+          : [{ type: "text", text }],
     });
     if (!sessionKey && typeof record.sessionKey === "string") {
       sessionKey = record.sessionKey;

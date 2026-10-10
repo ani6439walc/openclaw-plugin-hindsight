@@ -16,7 +16,7 @@ vi.mock("@vectorize-io/hindsight-all", () => ({
       start = managerStart;
       stop = managerStop;
       getBaseUrl = managerGetBaseUrl;
-    }
+    },
   ),
 }));
 
@@ -61,8 +61,13 @@ function makeStats(overrides: Partial<BankStats> = {}): BankStats {
 
 describe("backfill helpers", () => {
   it("resume skips only completed entries", async () => {
-    const { filterEntriesForResume, splitResumeEntries } = await import("./backfill.js");
-    const entries = [makeEntry("bank-a", "1"), makeEntry("bank-a", "2"), makeEntry("bank-a", "3")];
+    const { filterEntriesForResume, splitResumeEntries } =
+      await import("./backfill.js");
+    const entries = [
+      makeEntry("bank-a", "1"),
+      makeEntry("bank-a", "2"),
+      makeEntry("bank-a", "3"),
+    ];
     const checkpoint: BackfillCheckpoint = {
       version: 1,
       entries: {
@@ -93,8 +98,8 @@ describe("backfill helpers", () => {
     expect(resumable.map((entry) => entry.sessionId)).toEqual(["2", "3"]);
     expect(
       splitResumeEntries(resumable, checkpoint, false).entriesToEnqueue.map(
-        (entry) => entry.sessionId
-      )
+        (entry) => entry.sessionId,
+      ),
     ).toEqual(["2", "3"]);
     expect(splitResumeEntries(resumable, checkpoint, true)).toEqual({
       entriesToEnqueue: [entries[2]],
@@ -120,7 +125,7 @@ describe("backfill helpers", () => {
           },
         },
       }),
-      "utf8"
+      "utf8",
     );
 
     const checkpoint = loadCheckpoint(checkpointPath);
@@ -153,8 +158,22 @@ describe("backfill helpers", () => {
       ["bank-b", ["b"]],
     ]);
     const finalStatsByBank = new Map<string, BankStats>([
-      ["bank-a", makeStats({ bank_id: "bank-a", pending_operations: 0, failed_operations: 0 })],
-      ["bank-b", makeStats({ bank_id: "bank-b", pending_operations: 0, failed_operations: 2 })],
+      [
+        "bank-a",
+        makeStats({
+          bank_id: "bank-a",
+          pending_operations: 0,
+          failed_operations: 0,
+        }),
+      ],
+      [
+        "bank-b",
+        makeStats({
+          bank_id: "bank-b",
+          pending_operations: 0,
+          failed_operations: 2,
+        }),
+      ],
     ]);
     const initialFailedByBank = new Map([
       ["bank-a", 0],
@@ -165,7 +184,7 @@ describe("backfill helpers", () => {
       checkpoint,
       touchedEntriesByBank,
       finalStatsByBank,
-      initialFailedByBank
+      initialFailedByBank,
     );
     expect(result.completed).toBe(1);
     expect(result.unresolved).toBe(1);
@@ -202,6 +221,8 @@ describe("backfill helpers", () => {
 
     const moduleUrl = pathToFileURL(modulePath).href;
     expect(isDirectExecution(symlinkPath, moduleUrl)).toBe(true);
-    expect(isDirectExecution(join(dir, "other-entrypoint"), moduleUrl)).toBe(false);
+    expect(isDirectExecution(join(dir, "other-entrypoint"), moduleUrl)).toBe(
+      false,
+    );
   });
 });

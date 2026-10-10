@@ -1,7 +1,11 @@
-import type { HindsightClient, HindsightClientOptions } from "@vectorize-io/hindsight-client";
+import type {
+  HindsightClient,
+  HindsightClientOptions,
+} from "@vectorize-io/hindsight-client";
 import type { PluginConfig } from "./types.js";
 
-export type RetainExtractionMode = "concise" | "verbose" | "custom" | "verbatim" | "chunks";
+export type RetainExtractionMode =
+  "concise" | "verbose" | "custom" | "verbatim" | "chunks";
 
 const RETAIN_EXTRACTION_MODES = new Set<RetainExtractionMode>([
   "concise",
@@ -33,7 +37,9 @@ export function normalizeDispositionTrait(value: unknown): number | undefined {
   return value;
 }
 
-export function normalizeRetainExtractionMode(value: unknown): RetainExtractionMode | undefined {
+export function normalizeRetainExtractionMode(
+  value: unknown,
+): RetainExtractionMode | undefined {
   if (typeof value !== "string") return undefined;
   const mode = value.trim().toLowerCase();
   return RETAIN_EXTRACTION_MODES.has(mode as RetainExtractionMode)
@@ -52,7 +58,9 @@ export function normalizeEntityLabels(value: unknown): unknown | undefined {
   // drop it and preserve the bank's existing entity_labels.
   if (typeof value === "object") {
     const attributes = (value as { attributes?: unknown }).attributes;
-    return Array.isArray(attributes) && attributes.length > 0 ? value : undefined;
+    return Array.isArray(attributes) && attributes.length > 0
+      ? value
+      : undefined;
   }
   return undefined;
 }
@@ -65,7 +73,9 @@ function missionFromConfig(value: unknown): string | undefined {
  * Build createBank() payload from plugin config. Only includes explicitly set
  * fields so unset options preserve server/bank defaults (backwards compatible).
  */
-export function buildCreateBankDefaults(config: PluginConfig): CreateBankDefaults {
+export function buildCreateBankDefaults(
+  config: PluginConfig,
+): CreateBankDefaults {
   const out: CreateBankDefaults = {};
 
   const reflectMission = missionFromConfig(config.bankMission);
@@ -101,7 +111,9 @@ export function buildCreateBankDefaults(config: PluginConfig): CreateBankDefault
  * Fields applied via PATCH /banks/{id}/config because createBank does not
  * accept them in the generated client wrapper.
  */
-export function buildBankConfigApiUpdates(config: PluginConfig): BankConfigApiUpdates {
+export function buildBankConfigApiUpdates(
+  config: PluginConfig,
+): BankConfigApiUpdates {
   const out: BankConfigApiUpdates = {};
 
   if (config.entityLabels !== undefined) {
@@ -117,13 +129,16 @@ export function buildBankConfigApiUpdates(config: PluginConfig): BankConfigApiUp
 export function hasConfiguredBankDefaults(config: PluginConfig): boolean {
   const createPayload = buildCreateBankDefaults(config);
   const configUpdates = buildBankConfigApiUpdates(config);
-  return Object.keys(createPayload).length > 0 || Object.keys(configUpdates).length > 0;
+  return (
+    Object.keys(createPayload).length > 0 ||
+    Object.keys(configUpdates).length > 0
+  );
 }
 
 export async function patchBankConfig(
   bankId: string,
   updates: Record<string, unknown>,
-  options: HindsightClientOptions
+  options: HindsightClientOptions,
 ): Promise<void> {
   const url = `${options.baseUrl.replace(/\/$/, "")}/v1/default/banks/${encodeURIComponent(bankId)}/config`;
   const headers: Record<string, string> = {
@@ -154,12 +169,15 @@ export async function applyConfiguredBankDefaults(
   client: HindsightClient,
   bankId: string,
   config: PluginConfig,
-  clientOpts: HindsightClientOptions
+  clientOpts: HindsightClientOptions,
 ): Promise<void> {
   const createPayload = buildCreateBankDefaults(config);
   const configUpdates = buildBankConfigApiUpdates(config);
 
-  if (Object.keys(createPayload).length === 0 && Object.keys(configUpdates).length === 0) {
+  if (
+    Object.keys(createPayload).length === 0 &&
+    Object.keys(configUpdates).length === 0
+  ) {
     return;
   }
 
@@ -168,6 +186,10 @@ export async function applyConfiguredBankDefaults(
   }
 
   if (Object.keys(configUpdates).length > 0) {
-    await patchBankConfig(bankId, configUpdates as Record<string, unknown>, clientOpts);
+    await patchBankConfig(
+      bankId,
+      configUpdates as Record<string, unknown>,
+      clientOpts,
+    );
   }
 }

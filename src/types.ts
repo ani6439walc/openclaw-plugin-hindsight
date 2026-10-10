@@ -24,12 +24,15 @@ export interface MoltbotPluginAPI {
   // OpenClaw hook handler signature: (event, ctx?) where ctx contains channel/sender info
   on(
     event: string,
-    handler: (event: any, ctx?: any) => void | Promise<void | PluginPromptHookResult>
+    handler: (
+      event: any,
+      ctx?: any,
+    ) => void | Promise<void | PluginPromptHookResult>,
   ): void;
   // Register a tool or tool factory for agents
   registerTool?(
     factory: (ctx: PluginToolContext) => any | any[] | null | undefined,
-    opts?: { name?: string; names?: string[]; optional?: boolean }
+    opts?: { name?: string; names?: string[]; optional?: boolean },
   ): void;
   // OpenClaw framework logger — handles coloring/formatting consistently across plugins
   logger: {
@@ -98,7 +101,8 @@ export interface PluginConfig {
    * Fact extraction mode stamped onto dynamic/static banks on first use.
    * Leave unset to keep the Hindsight server default for new banks.
    */
-  retainExtractionMode?: "concise" | "verbose" | "custom" | "verbatim" | "chunks";
+  retainExtractionMode?:
+    "concise" | "verbose" | "custom" | "verbatim" | "chunks";
   /** Toggle observation consolidation for new banks. */
   enableObservations?: boolean;
   /** Toggle automatic consolidation scheduling for new banks. */

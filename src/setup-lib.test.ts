@@ -104,7 +104,9 @@ describe("ensurePluginConfig", () => {
     it("sets allowConversationAccess=true on a fresh config", () => {
       const cfg: OpenClawConfigShape = {};
       ensurePluginConfig(cfg);
-      expect(cfg.plugins?.entries?.[PLUGIN_ID]?.hooks?.allowConversationAccess).toBe(true);
+      expect(
+        cfg.plugins?.entries?.[PLUGIN_ID]?.hooks?.allowConversationAccess,
+      ).toBe(true);
     });
 
     it("backfills the flag on an existing entry that was configured before the gate landed", () => {
@@ -119,9 +121,11 @@ describe("ensurePluginConfig", () => {
         },
       };
       ensurePluginConfig(cfg);
-      expect(cfg.plugins?.entries?.[PLUGIN_ID]?.hooks?.allowConversationAccess).toBe(true);
+      expect(
+        cfg.plugins?.entries?.[PLUGIN_ID]?.hooks?.allowConversationAccess,
+      ).toBe(true);
       expect(cfg.plugins?.entries?.[PLUGIN_ID]?.config?.hindsightApiUrl).toBe(
-        "https://api.hindsight.vectorize.io"
+        "https://api.hindsight.vectorize.io",
       );
     });
 
@@ -138,7 +142,9 @@ describe("ensurePluginConfig", () => {
         },
       };
       ensurePluginConfig(cfg);
-      expect(cfg.plugins?.entries?.[PLUGIN_ID]?.hooks?.allowConversationAccess).toBe(false);
+      expect(
+        cfg.plugins?.entries?.[PLUGIN_ID]?.hooks?.allowConversationAccess,
+      ).toBe(false);
     });
 
     it("preserves other fields under hooks", () => {
@@ -154,7 +160,10 @@ describe("ensurePluginConfig", () => {
         },
       };
       ensurePluginConfig(cfg);
-      const hooks = cfg.plugins?.entries?.[PLUGIN_ID]?.hooks as Record<string, unknown>;
+      const hooks = cfg.plugins?.entries?.[PLUGIN_ID]?.hooks as Record<
+        string,
+        unknown
+      >;
       expect(hooks.allowConversationAccess).toBe(true);
       expect(hooks.someOtherFutureFlag).toBe("value");
     });
@@ -189,7 +198,10 @@ describe("ensurePluginConfig", () => {
 
     it("leaves a non-array allow value alone (don't second-guess deliberate weirdness)", () => {
       const cfg: OpenClawConfigShape = {
-        plugins: { allow: "weird-string-value" as unknown as string[], entries: {} },
+        plugins: {
+          allow: "weird-string-value" as unknown as string[],
+          entries: {},
+        },
       };
       ensurePluginConfig(cfg);
       expect(cfg.plugins?.allow).toEqual("weird-string-value");
@@ -224,7 +236,7 @@ describe("applyCloudMode — direct token value", () => {
   it("throws when both token and tokenEnvVar are provided", () => {
     const pc: Record<string, unknown> = {};
     expect(() => applyCloudMode(pc, { token: "x", tokenEnvVar: "Y" })).toThrow(
-      /either a direct value or an env var name/
+      /either a direct value or an env var name/,
     );
   });
 });
@@ -264,7 +276,10 @@ describe("applyCloudMode", () => {
 describe("applyApiMode — direct token value", () => {
   it("stores the token inline when a literal value is provided", () => {
     const pc: Record<string, unknown> = {};
-    applyApiMode(pc, { apiUrl: "https://mcp.example.com", token: "api_literal" });
+    applyApiMode(pc, {
+      apiUrl: "https://mcp.example.com",
+      token: "api_literal",
+    });
     expect(pc.hindsightApiUrl).toBe("https://mcp.example.com");
     expect(pc.hindsightApiToken).toBe("api_literal");
   });
@@ -272,7 +287,11 @@ describe("applyApiMode — direct token value", () => {
   it("throws when both token and tokenEnvVar are provided", () => {
     const pc: Record<string, unknown> = {};
     expect(() =>
-      applyApiMode(pc, { apiUrl: "https://mcp.example.com", token: "x", tokenEnvVar: "Y" })
+      applyApiMode(pc, {
+        apiUrl: "https://mcp.example.com",
+        token: "x",
+        tokenEnvVar: "Y",
+      }),
     ).toThrow(/either a direct value or an env var name/);
   });
 });
@@ -281,7 +300,11 @@ describe("applyApiMode", () => {
   it("writes the URL without a token when none is provided", () => {
     const pc: Record<string, unknown> = {
       llmProvider: "openai",
-      hindsightApiToken: { source: "env", provider: "default", id: "STALE_TOKEN" },
+      hindsightApiToken: {
+        source: "env",
+        provider: "default",
+        id: "STALE_TOKEN",
+      },
     };
     applyApiMode(pc, { apiUrl: "https://mcp.example.com" });
     expect(pc.hindsightApiUrl).toBe("https://mcp.example.com");
@@ -291,7 +314,10 @@ describe("applyApiMode", () => {
 
   it("writes a SecretRef when a token env var is provided", () => {
     const pc: Record<string, unknown> = {};
-    applyApiMode(pc, { apiUrl: "https://mcp.example.com", tokenEnvVar: "MY_TOKEN" });
+    applyApiMode(pc, {
+      apiUrl: "https://mcp.example.com",
+      tokenEnvVar: "MY_TOKEN",
+    });
     expect(pc.hindsightApiToken).toEqual({
       source: "env",
       provider: "default",
@@ -321,7 +347,7 @@ describe("applyEmbeddedMode — direct API key value", () => {
         llmProvider: "openai",
         apiKey: "sk-x",
         apiKeyEnvVar: "OPENAI_API_KEY",
-      })
+      }),
     ).toThrow(/either a direct value or an env var name/);
   });
 });
@@ -332,7 +358,10 @@ describe("applyEmbeddedMode", () => {
       hindsightApiUrl: "https://stale.example.com",
       hindsightApiToken: { source: "env", provider: "default", id: "STALE" },
     };
-    applyEmbeddedMode(pc, { llmProvider: "openai", apiKeyEnvVar: "OPENAI_API_KEY" });
+    applyEmbeddedMode(pc, {
+      llmProvider: "openai",
+      apiKeyEnvVar: "OPENAI_API_KEY",
+    });
     expect(pc.llmProvider).toBe("openai");
     expect(pc.llmApiKey).toEqual({
       source: "env",
@@ -364,7 +393,7 @@ describe("applyEmbeddedMode", () => {
   it("throws when a key-requiring provider is given without a key", () => {
     const pc: Record<string, unknown> = {};
     expect(() => applyEmbeddedMode(pc, { llmProvider: "openai" })).toThrow(
-      /requires either `apiKey` or `apiKeyEnvVar`/
+      /requires either `apiKey` or `apiKeyEnvVar`/,
     );
   });
 
@@ -381,24 +410,26 @@ describe("applyEmbeddedMode", () => {
 describe("summarize*", () => {
   it("produces human-readable mode summaries", () => {
     expect(summarizeCloud({ tokenEnvVar: "HINDSIGHT_CLOUD_TOKEN" })).toBe(
-      "Cloud → https://api.hindsight.vectorize.io (token from ${HINDSIGHT_CLOUD_TOKEN})"
+      "Cloud → https://api.hindsight.vectorize.io (token from ${HINDSIGHT_CLOUD_TOKEN})",
     );
-    expect(summarizeApi({ apiUrl: "https://api.example.com", tokenEnvVar: "T" })).toBe(
-      "External API → https://api.example.com (token from ${T})"
-    );
-    expect(summarizeApi({ apiUrl: "https://api.example.com", token: "literal" })).toBe(
-      "External API → https://api.example.com (token stored inline)"
-    );
+    expect(
+      summarizeApi({ apiUrl: "https://api.example.com", tokenEnvVar: "T" }),
+    ).toBe("External API → https://api.example.com (token from ${T})");
+    expect(
+      summarizeApi({ apiUrl: "https://api.example.com", token: "literal" }),
+    ).toBe("External API → https://api.example.com (token stored inline)");
     expect(summarizeApi({ apiUrl: "https://api.example.com" })).toBe(
-      "External API → https://api.example.com (no auth)"
+      "External API → https://api.example.com (no auth)",
     );
-    expect(summarizeEmbedded({ llmProvider: "openai", apiKeyEnvVar: "X" })).toBe(
-      "Embedded daemon → openai (key from ${X})"
+    expect(
+      summarizeEmbedded({ llmProvider: "openai", apiKeyEnvVar: "X" }),
+    ).toBe("Embedded daemon → openai (key from ${X})");
+    expect(
+      summarizeEmbedded({ llmProvider: "openai", apiKey: "sk-test" }),
+    ).toBe("Embedded daemon → openai (key stored inline)");
+    expect(summarizeEmbedded({ llmProvider: "claude-code" })).toBe(
+      "Embedded daemon → claude-code",
     );
-    expect(summarizeEmbedded({ llmProvider: "openai", apiKey: "sk-test" })).toBe(
-      "Embedded daemon → openai (key stored inline)"
-    );
-    expect(summarizeEmbedded({ llmProvider: "claude-code" })).toBe("Embedded daemon → claude-code");
   });
 });
 
@@ -451,7 +482,9 @@ describe("loadConfig / saveConfig", () => {
     const raw = await readFile(path, "utf8");
     expect(raw).toContain("{}");
     // Ensure the rename cleaned up the temp file.
-    await expect(readFile(`${path}.tmp-1`, "utf8").catch(() => "missing")).resolves.toBe("missing");
+    await expect(
+      readFile(`${path}.tmp-1`, "utf8").catch(() => "missing"),
+    ).resolves.toBe("missing");
   });
 
   it("throws a useful error when the config file is invalid JSON", async () => {

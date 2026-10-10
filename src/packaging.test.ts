@@ -5,13 +5,19 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageDir = resolve(__dirname, "..");
-const manifest = JSON.parse(readFileSync(resolve(packageDir, "package.json"), "utf-8"));
-const packScript = readFileSync(resolve(packageDir, "scripts", "pack-manifest.mjs"), "utf-8");
+const manifest = JSON.parse(
+  readFileSync(resolve(packageDir, "package.json"), "utf-8"),
+);
+const packScript = readFileSync(
+  resolve(packageDir, "scripts", "pack-manifest.mjs"),
+  "utf-8",
+);
 
 /** The field names `pack-manifest.mjs` strips, read from the script itself. */
 function strippedFields(): Set<string> {
   const list = packScript.match(/const DEV_ONLY_FIELDS = \[([^\]]*)\]/);
-  if (!list) throw new Error("Could not locate DEV_ONLY_FIELDS in pack-manifest.mjs");
+  if (!list)
+    throw new Error("Could not locate DEV_ONLY_FIELDS in pack-manifest.mjs");
   return new Set([...list[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]));
 }
 
@@ -23,17 +29,26 @@ function strippedFields(): Set<string> {
 // end-to-end proof is the `smoke-openclaw-install` CI job.
 describe("published manifest", () => {
   it("wires the prepack/postpack pair that strips dev-only fields", () => {
-    expect(manifest.scripts.prepack).toBe("node scripts/pack-manifest.mjs strip");
-    expect(manifest.scripts.postpack).toBe("node scripts/pack-manifest.mjs restore");
+    expect(manifest.scripts.prepack).toBe(
+      "node scripts/pack-manifest.mjs strip",
+    );
+    expect(manifest.scripts.postpack).toBe(
+      "node scripts/pack-manifest.mjs restore",
+    );
   });
 
   it("strips every dev-only field the package actually declares", () => {
     // A new dev-only top-level field added to package.json without being added
     // to DEV_ONLY_FIELDS would ship to users and be installed by OpenClaw.
-    const devOnlyPresent = ["devDependencies", "overrides"].filter((f) => f in manifest);
+    const devOnlyPresent = ["devDependencies", "overrides"].filter(
+      (f) => f in manifest,
+    );
     const stripped = strippedFields();
     const unstripped = devOnlyPresent.filter((f) => !stripped.has(f));
-    expect(unstripped, "dev-only package.json fields that would ship to users").toEqual([]);
+    expect(
+      unstripped,
+      "dev-only package.json fields that would ship to users",
+    ).toEqual([]);
   });
 
   it("keeps the runtime dependencies the plugin needs at runtime", () => {

@@ -19,7 +19,11 @@ export const PLUGIN_ID = "hindsight";
  */
 export const HINDSIGHT_CLOUD_URL = "https://api.hindsight.vectorize.io";
 
-export const DEFAULT_OPENCLAW_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
+export const DEFAULT_OPENCLAW_CONFIG_PATH = join(
+  homedir(),
+  ".openclaw",
+  "openclaw.json",
+);
 
 export interface SecretRef {
   source: "env" | "file" | "exec";
@@ -60,11 +64,16 @@ export async function loadConfig(path: string): Promise<OpenClawConfigShape> {
     return JSON.parse(raw) as OpenClawConfigShape;
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return {};
-    throw new Error(`Failed to read ${path}: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(
+      `Failed to read ${path}: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
-export async function saveConfig(path: string, cfg: OpenClawConfigShape): Promise<void> {
+export async function saveConfig(
+  path: string,
+  cfg: OpenClawConfigShape,
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const serialized = `${JSON.stringify(cfg, null, 2)}\n`;
   const tmpPath = `${path}.tmp-${Date.now()}`;
@@ -86,7 +95,9 @@ export async function saveConfig(path: string, cfg: OpenClawConfigShape): Promis
  * We never override an explicit `false` — that's a deliberate user choice to
  * disable conversation access. See openclaw#71221 (released 2026.4.24).
  */
-export function ensurePluginConfig(cfg: OpenClawConfigShape): Record<string, unknown> {
+export function ensurePluginConfig(
+  cfg: OpenClawConfigShape,
+): Record<string, unknown> {
   const plugins = (cfg.plugins ??= {});
   const entries = (plugins.entries ??= {});
   const entry = (entries[PLUGIN_ID] ??= { enabled: true });
@@ -104,7 +115,10 @@ export function ensurePluginConfig(cfg: OpenClawConfigShape): Record<string, unk
   // If it's set to something non-array (deliberate strange value), leave it.
   if (plugins.allow === undefined) {
     plugins.allow = [PLUGIN_ID];
-  } else if (Array.isArray(plugins.allow) && !plugins.allow.includes(PLUGIN_ID)) {
+  } else if (
+    Array.isArray(plugins.allow) &&
+    !plugins.allow.includes(PLUGIN_ID)
+  ) {
     plugins.allow = [...plugins.allow, PLUGIN_ID];
   }
   return (entry.config ??= {});
@@ -119,7 +133,9 @@ export function clearCloudFields(pluginConfig: Record<string, unknown>): void {
   delete pluginConfig.hindsightApiToken;
 }
 
-export function clearLocalLlmFields(pluginConfig: Record<string, unknown>): void {
+export function clearLocalLlmFields(
+  pluginConfig: Record<string, unknown>,
+): void {
   delete pluginConfig.llmProvider;
   delete pluginConfig.llmModel;
   delete pluginConfig.llmApiKey;
@@ -174,12 +190,14 @@ export interface EmbeddedSetupInput {
 
 function pickCredential(
   token: string | undefined,
-  tokenEnvVar: string | undefined
+  tokenEnvVar: string | undefined,
 ): string | SecretRef | undefined {
   const hasToken = token && token.trim().length > 0;
   const hasEnvVar = tokenEnvVar && tokenEnvVar.trim().length > 0;
   if (hasToken && hasEnvVar) {
-    throw new Error("provide either a direct value or an env var name — not both");
+    throw new Error(
+      "provide either a direct value or an env var name — not both",
+    );
   }
   if (hasToken) return token!.trim();
   if (hasEnvVar) return envSecretRef(tokenEnvVar!.trim());
@@ -194,7 +212,7 @@ function pickCredential(
  */
 export function applyCloudMode(
   pluginConfig: Record<string, unknown>,
-  input: CloudSetupInput
+  input: CloudSetupInput,
 ): void {
   const token = pickCredential(input.token, input.tokenEnvVar);
   if (token === undefined) {
@@ -211,7 +229,10 @@ export function applyCloudMode(
  * and strips any leftover local-LLM fields so mode switches don't carry
  * stale state.
  */
-export function applyApiMode(pluginConfig: Record<string, unknown>, input: ApiSetupInput): void {
+export function applyApiMode(
+  pluginConfig: Record<string, unknown>,
+  input: ApiSetupInput,
+): void {
   const token = pickCredential(input.token, input.tokenEnvVar);
   clearLocalLlmFields(pluginConfig);
   pluginConfig.hindsightApiUrl = input.apiUrl.trim();
@@ -230,7 +251,7 @@ export function applyApiMode(pluginConfig: Record<string, unknown>, input: ApiSe
  */
 export function applyEmbeddedMode(
   pluginConfig: Record<string, unknown>,
-  input: EmbeddedSetupInput
+  input: EmbeddedSetupInput,
 ): void {
   const key = pickCredential(input.apiKey, input.apiKeyEnvVar);
   clearCloudFields(pluginConfig);
@@ -240,7 +261,7 @@ export function applyEmbeddedMode(
   } else {
     if (key === undefined) {
       throw new Error(
-        `llmProvider "${input.llmProvider}" requires either \`apiKey\` or \`apiKeyEnvVar\``
+        `llmProvider "${input.llmProvider}" requires either \`apiKey\` or \`apiKeyEnvVar\``,
       );
     }
     pluginConfig.llmApiKey = key;
@@ -252,7 +273,10 @@ export function applyEmbeddedMode(
   }
 }
 
-function credentialSuffix(token: string | undefined, tokenEnvVar: string | undefined): string {
+function credentialSuffix(
+  token: string | undefined,
+  tokenEnvVar: string | undefined,
+): string {
   if (tokenEnvVar && tokenEnvVar.trim().length > 0) {
     return ` (token from \${${tokenEnvVar.trim()}})`;
   }

@@ -23,10 +23,14 @@ import {
   vi,
   type MockInstance,
 } from "vitest";
-import type { RecallResponse, RetainResponse } from "@vectorize-io/hindsight-client";
+import type {
+  RecallResponse,
+  RetainResponse,
+} from "@vectorize-io/hindsight-client";
 import type { MoltbotPluginAPI, PluginConfig } from "../src/types.js";
 
-const HINDSIGHT_API_URL = process.env.HINDSIGHT_API_URL || "http://localhost:8888";
+const HINDSIGHT_API_URL =
+  process.env.HINDSIGHT_API_URL || "http://localhost:8888";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -36,7 +40,9 @@ async function waitForApi(url: string, maxMs = 5000): Promise<boolean> {
   const deadline = Date.now() + maxMs;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(1000) });
+      const res = await fetch(`${url}/health`, {
+        signal: AbortSignal.timeout(1000),
+      });
       if (res.ok) return true;
     } catch {
       /* not ready yet */
@@ -54,15 +60,27 @@ interface MockApiHandle {
   stopServices(): Promise<void>;
 }
 
-function createMockApi(pluginConfig: Partial<PluginConfig> = {}): MockApiHandle {
-  const handlers = new Map<string, ((event: unknown, ctx?: unknown) => unknown)[]>();
-  const services: { id: string; start(): Promise<void>; stop(): Promise<void> }[] = [];
+function createMockApi(
+  pluginConfig: Partial<PluginConfig> = {},
+): MockApiHandle {
+  const handlers = new Map<
+    string,
+    ((event: unknown, ctx?: unknown) => unknown)[]
+  >();
+  const services: {
+    id: string;
+    start(): Promise<void>;
+    stop(): Promise<void>;
+  }[] = [];
 
   const api: MoltbotPluginAPI = {
     config: {
       plugins: {
         entries: {
-          "hindsight-openclaw": { enabled: true, config: pluginConfig as PluginConfig },
+          "hindsight-openclaw": {
+            enabled: true,
+            config: pluginConfig as PluginConfig,
+          },
         },
       },
     },
@@ -104,7 +122,10 @@ const EMPTY_RECALL: RecallResponse = {
   trace: null,
   chunks: null,
 } as RecallResponse;
-const OK_RETAIN = { operations: [], memory_units: [] } as unknown as RetainResponse;
+const OK_RETAIN = {
+  operations: [],
+  memory_units: [],
+} as unknown as RetainResponse;
 
 interface MockMemoryResult {
   id: string;
@@ -154,7 +175,7 @@ beforeAll(async () => {
   apiReachable = await waitForApi(HINDSIGHT_API_URL, 8000);
   if (!apiReachable) {
     console.warn(
-      `[Hooks Integration] Hindsight API not reachable at ${HINDSIGHT_API_URL} – skipping hook tests.`
+      `[Hooks Integration] Hindsight API not reachable at ${HINDSIGHT_API_URL} – skipping hook tests.`,
     );
     return;
   }
@@ -190,7 +211,9 @@ beforeAll(async () => {
 
   // After startServices the client must be ready.
   if (!getClient())
-    throw new Error("[Hooks Integration] Client not initialized after service start");
+    throw new Error(
+      "[Hooks Integration] Client not initialized after service start",
+    );
 
   // Spy on the HindsightClient prototype so all calls go through the spy.
   // The plugin's scopeClient() wrapper calls through these prototype methods.
@@ -219,8 +242,12 @@ describe("before_prompt_build hook", () => {
 
     const result = await triggerHook(
       "before_prompt_build",
-      { rawMessage: "What are my preferences?", prompt: "What are my preferences?", messages: [] },
-      { messageProvider: "slack", senderId: "U001" }
+      {
+        rawMessage: "What are my preferences?",
+        prompt: "What are my preferences?",
+        messages: [],
+      },
+      { messageProvider: "slack", senderId: "U001" },
     );
 
     expect(recallSpy).not.toHaveBeenCalled();
@@ -233,7 +260,7 @@ describe("before_prompt_build hook", () => {
     const result = await triggerHook(
       "before_prompt_build",
       { rawMessage: "Hi", prompt: "Hi", messages: [] },
-      { messageProvider: "telegram", senderId: "U001" }
+      { messageProvider: "telegram", senderId: "U001" },
     );
 
     expect(recallSpy).not.toHaveBeenCalled();
@@ -246,8 +273,12 @@ describe("before_prompt_build hook", () => {
 
     const result = await triggerHook(
       "before_prompt_build",
-      { rawMessage: "What programming language do I like?", prompt: "", messages: [] },
-      { messageProvider: "telegram", senderId: "U002" }
+      {
+        rawMessage: "What programming language do I like?",
+        prompt: "",
+        messages: [],
+      },
+      { messageProvider: "telegram", senderId: "U002" },
     );
 
     expect(recallSpy).toHaveBeenCalledOnce();
@@ -265,9 +296,17 @@ describe("before_prompt_build hook", () => {
 
     const result = (await triggerHook(
       "before_prompt_build",
-      { rawMessage: "What programming language do I prefer?", prompt: "", messages: [] },
-      { messageProvider: "telegram", senderId: "U003" }
-    )) as { prependContext: string; prependSystemContext?: string; appendSystemContext?: string };
+      {
+        rawMessage: "What programming language do I prefer?",
+        prompt: "",
+        messages: [],
+      },
+      { messageProvider: "telegram", senderId: "U003" },
+    )) as {
+      prependContext: string;
+      prependSystemContext?: string;
+      appendSystemContext?: string;
+    };
 
     expect(result).toBeDefined();
     expect(result.prependSystemContext).toBeUndefined();
@@ -294,8 +333,12 @@ describe("before_prompt_build hook", () => {
 
     const result = (await triggerHook(
       "before_prompt_build",
-      { rawMessage: "Do I prefer dark or light mode?", prompt: "", messages: [] },
-      { messageProvider: "telegram", senderId: "U004" }
+      {
+        rawMessage: "Do I prefer dark or light mode?",
+        prompt: "",
+        messages: [],
+      },
+      { messageProvider: "telegram", senderId: "U004" },
     )) as { prependContext: string; prependSystemContext?: string };
 
     // formatMemories returns a bullet list, not JSON
@@ -304,20 +347,23 @@ describe("before_prompt_build hook", () => {
     expect(result.prependContext).toContain("<hindsight_memories>");
     expect(result.prependContext).toContain("</hindsight_memories>");
     expect(result.prependContext).toContain(
-      "[occurred: 2026-01-14T09:00:00Z → 2026-01-14T11:00:00Z]"
+      "[occurred: 2026-01-14T09:00:00Z → 2026-01-14T11:00:00Z]",
     );
-    expect(result.prependContext).toContain("[doc:openclaw:agent:main:tg:-1003825475854]");
+    expect(result.prependContext).toContain(
+      "[doc:openclaw:agent:main:tg:-1003825475854]",
+    );
   });
 
   it("extracts the inner query from an envelope-formatted prompt when rawMessage is absent", async () => {
     if (!apiReachable) return;
     recallSpy.mockResolvedValue(EMPTY_RECALL);
 
-    const envelopePrompt = "[Telegram Chat]\nWhat is my favorite food?\n[from: Alice]";
+    const envelopePrompt =
+      "[Telegram Chat]\nWhat is my favorite food?\n[from: Alice]";
     await triggerHook(
       "before_prompt_build",
       { rawMessage: "", prompt: envelopePrompt, messages: [] },
-      { messageProvider: "telegram", senderId: "U005" }
+      { messageProvider: "telegram", senderId: "U005" },
     );
 
     expect(recallSpy).toHaveBeenCalledOnce();
@@ -343,7 +389,7 @@ describe("before_prompt_build hook", () => {
           { role: "user", content: "Do I still prefer dark mode?" },
         ],
       },
-      { messageProvider: "telegram", senderId: "U006A" }
+      { messageProvider: "telegram", senderId: "U006A" },
     );
 
     expect(recallSpy).toHaveBeenCalledOnce();
@@ -360,8 +406,12 @@ describe("before_prompt_build hook", () => {
 
     await triggerHook(
       "before_prompt_build",
-      { rawMessage: "Tell me about my hobbies please.", prompt: "", messages: [] },
-      { messageProvider: "telegram", senderId: "U006" }
+      {
+        rawMessage: "Tell me about my hobbies please.",
+        prompt: "",
+        messages: [],
+      },
+      { messageProvider: "telegram", senderId: "U006" },
     );
 
     expect(recallSpy).toHaveBeenCalledOnce();
@@ -380,8 +430,12 @@ describe("before_prompt_build hook", () => {
 
     const result = (await triggerHook(
       "before_prompt_build",
-      { rawMessage: "What outdoor activities do I enjoy?", prompt: "", messages: [] },
-      { messageProvider: "telegram", senderId: "U007" }
+      {
+        rawMessage: "What outdoor activities do I enjoy?",
+        prompt: "",
+        messages: [],
+      },
+      { messageProvider: "telegram", senderId: "U007" },
     )) as { prependContext: string; prependSystemContext?: string };
 
     expect(result.prependSystemContext).toBeUndefined();
@@ -400,13 +454,13 @@ describe("before_prompt_build hook", () => {
         channel: "telegram",
         senderId: "U020",
       },
-      { sessionKey: "agent:main:telegram:direct:U020" }
+      { sessionKey: "agent:main:telegram:direct:U020" },
     );
 
     await triggerHook(
       "before_prompt_build",
       { rawMessage: "What do I like?", prompt: "", messages: [] },
-      { sessionKey: "agent:main:telegram:direct:U020" }
+      { sessionKey: "agent:main:telegram:direct:U020" },
     );
 
     expect(recallSpy).toHaveBeenCalledOnce();
@@ -423,13 +477,13 @@ describe("before_prompt_build hook", () => {
         channel: "discord",
         senderId: "U021",
       },
-      { sessionKey: "agent:main:telegram:direct:U021" }
+      { sessionKey: "agent:main:telegram:direct:U021" },
     );
 
     const result = await triggerHook(
       "before_prompt_build",
       { rawMessage: "What do I like?", prompt: "", messages: [] },
-      { sessionKey: "agent:main:telegram:direct:U021" }
+      { sessionKey: "agent:main:telegram:direct:U021" },
     );
 
     expect(recallSpy).not.toHaveBeenCalled();
@@ -447,8 +501,11 @@ describe("agent_end hook", () => {
 
     await triggerHook(
       "agent_end",
-      { success: false, messages: [{ role: "user", content: "Hello there world!" }] },
-      { messageProvider: "telegram", senderId: "U010" }
+      {
+        success: false,
+        messages: [{ role: "user", content: "Hello there world!" }],
+      },
+      { messageProvider: "telegram", senderId: "U010" },
     );
 
     expect(retainSpy).not.toHaveBeenCalled();
@@ -460,7 +517,7 @@ describe("agent_end hook", () => {
     await triggerHook(
       "agent_end",
       { success: true, messages: [] },
-      { messageProvider: "telegram", senderId: "U011" }
+      { messageProvider: "telegram", senderId: "U011" },
     );
 
     expect(retainSpy).not.toHaveBeenCalled();
@@ -475,7 +532,7 @@ describe("agent_end hook", () => {
         success: true,
         messages: [{ role: "user", content: "I work as a software engineer." }],
       },
-      { messageProvider: "slack", senderId: "U012" }
+      { messageProvider: "slack", senderId: "U012" },
     );
 
     expect(retainSpy).not.toHaveBeenCalled();
@@ -494,7 +551,11 @@ describe("agent_end hook", () => {
           { role: "assistant", content: "TypeScript is great!" },
         ],
       },
-      { messageProvider: "telegram", senderId: "U013", sessionKey: "sess-ts-test" }
+      {
+        messageProvider: "telegram",
+        senderId: "U013",
+        sessionKey: "sess-ts-test",
+      },
     );
 
     expect(retainSpy).toHaveBeenCalledOnce();
@@ -506,7 +567,10 @@ describe("agent_end hook", () => {
     // transcript — it now travels via the retain API `context` field (#1968).
     expect(parsed).toEqual([
       { role: "user", content: [{ type: "text", text: "I love TypeScript." }] },
-      { role: "assistant", content: [{ type: "text", text: "TypeScript is great!" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "TypeScript is great!" }],
+      },
     ]);
   });
 
@@ -520,7 +584,11 @@ describe("agent_end hook", () => {
         success: true,
         messages: [{ role: "user", content: "My favourite colour is blue." }],
       },
-      { messageProvider: "telegram", senderId: "U014", sessionKey: "sess-colour" }
+      {
+        messageProvider: "telegram",
+        senderId: "U014",
+        sessionKey: "sess-colour",
+      },
     );
 
     expect(retainSpy).toHaveBeenCalledOnce();
@@ -543,7 +611,7 @@ describe("agent_end hook", () => {
         channelId: "chat-999",
         senderId: "U015",
         sessionKey: "sess-cat",
-      }
+      },
     );
 
     expect(retainSpy).toHaveBeenCalledOnce();
@@ -566,7 +634,7 @@ describe("agent_end hook", () => {
         channel: "telegram",
         senderId: "U015B",
       },
-      { sessionKey: "agent:main:telegram:direct:U015B" }
+      { sessionKey: "agent:main:telegram:direct:U015B" },
     );
 
     await triggerHook(
@@ -575,7 +643,7 @@ describe("agent_end hook", () => {
         success: true,
         messages: [{ role: "user", content: "I like midnight blue." }],
       },
-      { sessionKey: "agent:main:telegram:direct:U015B" }
+      { sessionKey: "agent:main:telegram:direct:U015B" },
     );
 
     expect(retainSpy).toHaveBeenCalledOnce();
@@ -595,7 +663,7 @@ describe("agent_end hook", () => {
         success: true,
         messages: [{ role: "user", content: "I prefer espresso." }],
       },
-      { sessionKey: "agent:main:telegram:direct:U015C" }
+      { sessionKey: "agent:main:telegram:direct:U015C" },
     );
 
     expect(retainSpy).toHaveBeenCalledOnce();
@@ -619,7 +687,11 @@ describe("agent_end hook", () => {
         success: true,
         messages: [{ role: "user", content: contentWithMemories }],
       },
-      { messageProvider: "telegram", senderId: "U016", sessionKey: "sess-strip" }
+      {
+        messageProvider: "telegram",
+        senderId: "U016",
+        sessionKey: "sess-strip",
+      },
     );
 
     expect(retainSpy).toHaveBeenCalledOnce();
@@ -643,7 +715,11 @@ describe("agent_end hook", () => {
         success: true,
         messages: [{ role: "user", content: contentWithLegacyTag }],
       },
-      { messageProvider: "telegram", senderId: "U017", sessionKey: "sess-legacy" }
+      {
+        messageProvider: "telegram",
+        senderId: "U017",
+        sessionKey: "sess-legacy",
+      },
     );
 
     expect(retainSpy).toHaveBeenCalledOnce();
@@ -670,7 +746,11 @@ describe("agent_end hook", () => {
           },
         ],
       },
-      { messageProvider: "telegram", senderId: "U018", sessionKey: "sess-array" }
+      {
+        messageProvider: "telegram",
+        senderId: "U018",
+        sessionKey: "sess-array",
+      },
     );
 
     expect(retainSpy).toHaveBeenCalledOnce();
@@ -694,7 +774,11 @@ describe("agent_end hook", () => {
           { role: "assistant", content: "That's a fascinating career!" },
         ],
       },
-      { messageProvider: "telegram", senderId: "U019", sessionKey: "sess-multi" }
+      {
+        messageProvider: "telegram",
+        senderId: "U019",
+        sessionKey: "sess-multi",
+      },
     );
 
     expect(retainSpy).toHaveBeenCalledOnce();
@@ -704,8 +788,14 @@ describe("agent_end hook", () => {
     // Default retainFormat is 'json' with Anthropic-shaped typed blocks.
     const parsed = JSON.parse(content);
     expect(parsed).toEqual([
-      { role: "user", content: [{ type: "text", text: "I work as a data scientist." }] },
-      { role: "assistant", content: [{ type: "text", text: "That's a fascinating career!" }] },
+      {
+        role: "user",
+        content: [{ type: "text", text: "I work as a data scientist." }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "That's a fascinating career!" }],
+      },
     ]);
     expect(content).not.toContain("My name is Carol.");
     expect(options?.metadata?.message_count).toBe("2");
@@ -746,9 +836,15 @@ describe("session_end hook (#1726)", () => {
       "agent_end",
       {
         success: true,
-        messages: [{ role: "user", content: "I just adopted a corgi named Pepper." }],
+        messages: [
+          { role: "user", content: "I just adopted a corgi named Pepper." },
+        ],
       },
-      { messageProvider: "telegram", senderId: "U1726A", sessionKey: "sess-1726-short" }
+      {
+        messageProvider: "telegram",
+        senderId: "U1726A",
+        sessionKey: "sess-1726-short",
+      },
     );
     await triggerSessionEnd(
       "agent_end",
@@ -760,7 +856,11 @@ describe("session_end hook (#1726)", () => {
           { role: "user", content: "She loves chasing tennis balls." },
         ],
       },
-      { messageProvider: "telegram", senderId: "U1726A", sessionKey: "sess-1726-short" }
+      {
+        messageProvider: "telegram",
+        senderId: "U1726A",
+        sessionKey: "sess-1726-short",
+      },
     );
 
     expect(retainSpy).not.toHaveBeenCalled();
@@ -775,7 +875,11 @@ describe("session_end hook (#1726)", () => {
           { role: "user", content: "She loves chasing tennis balls." },
         ],
       },
-      { messageProvider: "telegram", senderId: "U1726A", sessionKey: "sess-1726-short" }
+      {
+        messageProvider: "telegram",
+        senderId: "U1726A",
+        sessionKey: "sess-1726-short",
+      },
     );
 
     expect(retainSpy).toHaveBeenCalledOnce();
@@ -798,7 +902,11 @@ describe("session_end hook (#1726)", () => {
             content: `turn ${j + 1} message about hiking`,
           })),
         },
-        { messageProvider: "telegram", senderId: "U1726B", sessionKey: "sess-1726-aligned" }
+        {
+          messageProvider: "telegram",
+          senderId: "U1726B",
+          sessionKey: "sess-1726-aligned",
+        },
       );
     }
 
@@ -815,7 +923,11 @@ describe("session_end hook (#1726)", () => {
           content: `turn ${j + 1} message about hiking`,
         })),
       },
-      { messageProvider: "telegram", senderId: "U1726B", sessionKey: "sess-1726-aligned" }
+      {
+        messageProvider: "telegram",
+        senderId: "U1726B",
+        sessionKey: "sess-1726-aligned",
+      },
     );
 
     expect(retainSpy).not.toHaveBeenCalled();
@@ -828,9 +940,18 @@ describe("session_end hook (#1726)", () => {
     await triggerSessionEnd(
       "session_end",
       {
-        messages: [{ role: "user", content: "ephemeral message that never reached agent_end" }],
+        messages: [
+          {
+            role: "user",
+            content: "ephemeral message that never reached agent_end",
+          },
+        ],
       },
-      { messageProvider: "telegram", senderId: "U1726C", sessionKey: "sess-1726-empty" }
+      {
+        messageProvider: "telegram",
+        senderId: "U1726C",
+        sessionKey: "sess-1726-empty",
+      },
     );
 
     expect(retainSpy).not.toHaveBeenCalled();

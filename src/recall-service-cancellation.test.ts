@@ -12,10 +12,13 @@ it("does not send with an already-stopped service signal", async () => {
   const controller = new AbortController();
   controller.abort();
   const recall = vi.fn();
-  const scoped = scopeClient({ recall } as unknown as HindsightClient, "test-bank");
-  await expect(scoped.recall({ query: "question" }, 1000, controller.signal)).rejects.toBe(
-    controller.signal.reason
+  const scoped = scopeClient(
+    { recall } as unknown as HindsightClient,
+    "test-bank",
   );
+  await expect(
+    scoped.recall({ query: "question" }, 1000, controller.signal),
+  ).rejects.toBe(controller.signal.reason);
   expect(recall).not.toHaveBeenCalled();
   expect(vi.getTimerCount()).toBe(0);
 });
@@ -24,9 +27,12 @@ it("settles on stop even if transport never returns and cleans up", async () => 
   const controller = new AbortController();
   const recall = vi.fn(
     (_bank: string, _query: string, _options?: { signal?: AbortSignal }) =>
-      new Promise<never>(() => {})
+      new Promise<never>(() => {}),
   );
-  const scoped = scopeClient({ recall } as unknown as HindsightClient, "test-bank");
+  const scoped = scopeClient(
+    { recall } as unknown as HindsightClient,
+    "test-bank",
+  );
   const pending = scoped
     .recall({ query: "question" }, 1000, controller.signal)
     .catch((error: unknown) => error);

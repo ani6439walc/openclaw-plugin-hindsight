@@ -30,7 +30,11 @@ const LEVEL_RANK: Record<LogLevel, number> = {
 };
 
 // Output backend — set via setApiLogger, falls back to console
-let apiLogger: { info(msg: string): void; warn(msg: string): void; error(msg: string): void } = {
+let apiLogger: {
+  info(msg: string): void;
+  warn(msg: string): void;
+  error(msg: string): void;
+} = {
   info: (msg) => console.log(msg),
   warn: (msg) => console.warn(msg),
   error: (msg) => console.error(msg),
@@ -66,7 +70,10 @@ export function configureLogger(cfg: LoggerConfig): void {
     clearInterval(summaryTimer);
     summaryTimer = null;
   }
-  if (currentSummaryIntervalMs > 0 && LEVEL_RANK[currentLevel] >= LEVEL_RANK["info"]) {
+  if (
+    currentSummaryIntervalMs > 0 &&
+    LEVEL_RANK[currentLevel] >= LEVEL_RANK["info"]
+  ) {
     summaryTimer = setInterval(flushSummary, currentSummaryIntervalMs);
     summaryTimer.unref?.(); // don't keep process alive
   }
@@ -107,7 +114,9 @@ export function trackRetain(bankId: string, messageCount: number): void {
   retainMsgTotal += messageCount;
   banksSeen.add(bankId);
   if (currentSummaryIntervalMs === 0 && allowed("info")) {
-    apiLogger.info(`${PREFIX} auto-retained ${messageCount} messages (bank: ${bankId})`);
+    apiLogger.info(
+      `${PREFIX} auto-retained ${messageCount} messages (bank: ${bankId})`,
+    );
   }
 }
 
@@ -127,11 +136,15 @@ export function flushSummary(): void {
   const elapsed = Math.round((Date.now() - lastSummaryTime) / 1000);
   const parts: string[] = [];
   if (recallCount > 0)
-    parts.push(`${recallCount} recalls (${recallMemoriesCount} memories injected)`);
-  if (retainCount > 0) parts.push(`${retainCount} retains (${retainMsgTotal} messages captured)`);
+    parts.push(
+      `${recallCount} recalls (${recallMemoriesCount} memories injected)`,
+    );
+  if (retainCount > 0)
+    parts.push(`${retainCount} retains (${retainMsgTotal} messages captured)`);
   const bankList = [...banksSeen];
   const bankLabel = bankList.length === 1 ? "bank" : "banks";
-  const banks = bankList.length > 0 ? ` (${bankLabel}: ${bankList.join(", ")})` : "";
+  const banks =
+    bankList.length > 0 ? ` (${bankLabel}: ${bankList.join(", ")})` : "";
   apiLogger.info(`${PREFIX} ${parts.join(", ")} in ${elapsed}s${banks}`);
 
   retainCount = 0;

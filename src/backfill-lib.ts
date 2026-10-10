@@ -1,6 +1,12 @@
 import { homedir } from "os";
 import { dirname, join, resolve } from "path";
-import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync } from "fs";
+import {
+  readFileSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  readdirSync,
+} from "fs";
 import { deriveBankId, prepareRetentionTranscript } from "./index.js";
 import type { PluginConfig, PluginHookAgentContext } from "./types.js";
 import { parseSessionFile } from "./session-file.js";
@@ -44,7 +50,10 @@ export interface BackfillCheckpoint {
   entries: Record<string, BackfillCheckpointEntry>;
 }
 
-interface RawBackfillCheckpointEntry extends Omit<BackfillCheckpointEntry, "status"> {
+interface RawBackfillCheckpointEntry extends Omit<
+  BackfillCheckpointEntry,
+  "status"
+> {
   status: BackfillCheckpointEntry["status"] | "queued";
 }
 
@@ -71,7 +80,9 @@ export function defaultCheckpointPath(openclawRoot: string): string {
   return join(openclawRoot, "data", "hindsight-backfill-checkpoint.json");
 }
 
-export function loadPluginConfigFromOpenClawRoot(openclawRoot: string): PluginConfig {
+export function loadPluginConfigFromOpenClawRoot(
+  openclawRoot: string,
+): PluginConfig {
   const configPath = join(openclawRoot, "openclaw.json");
   const raw = JSON.parse(readFileSync(configPath, "utf8")) as {
     plugins?: { entries?: Record<string, { config?: PluginConfig }> };
@@ -82,7 +93,10 @@ export function loadPluginConfigFromOpenClawRoot(openclawRoot: string): PluginCo
   };
 }
 
-function sessionDirectories(openclawRoot: string, includeArchive: boolean): SessionDirectory[] {
+function sessionDirectories(
+  openclawRoot: string,
+  includeArchive: boolean,
+): SessionDirectory[] {
   const agentsRoot = join(openclawRoot, "agents");
   if (!existsSync(agentsRoot)) {
     return [];
@@ -96,18 +110,25 @@ function sessionDirectories(openclawRoot: string, includeArchive: boolean): Sess
       result.push({ agentId, path: sessionsDir });
     }
     if (includeArchive) {
-      const archiveDir = join(agentsRoot, agentId, "sessions-archive-from-migration_backup");
+      const archiveDir = join(
+        agentsRoot,
+        agentId,
+        "sessions-archive-from-migration_backup",
+      );
       if (existsSync(archiveDir)) {
         result.push({ agentId, path: archiveDir });
       }
     }
   }
-  return result.sort((a, b) => a.agentId.localeCompare(b.agentId) || a.path.localeCompare(b.path));
+  return result.sort(
+    (a, b) =>
+      a.agentId.localeCompare(b.agentId) || a.path.localeCompare(b.path),
+  );
 }
 
 export function discoverSessionFiles(
   openclawRoot: string,
-  includeArchive: boolean
+  includeArchive: boolean,
 ): Array<{ agentId: string; filePath: string }> {
   const sessions: Array<{ agentId: string; filePath: string }> = [];
   for (const dir of sessionDirectories(openclawRoot, includeArchive)) {
@@ -120,11 +141,15 @@ export function discoverSessionFiles(
     }
   }
   return sessions.sort(
-    (a, b) => a.agentId.localeCompare(b.agentId) || a.filePath.localeCompare(b.filePath)
+    (a, b) =>
+      a.agentId.localeCompare(b.agentId) ||
+      a.filePath.localeCompare(b.filePath),
   );
 }
 
-function backfillContextForSession(session: ParsedSessionFile): PluginHookAgentContext {
+function backfillContextForSession(
+  session: ParsedSessionFile,
+): PluginHookAgentContext {
   return {
     agentId: session.agentId,
     sessionKey: session.sessionKey,
@@ -135,7 +160,7 @@ function deriveTargetBank(
   session: ParsedSessionFile,
   pluginConfig: PluginConfig,
   bankStrategy: BackfillCliOptions["bankStrategy"],
-  fixedBank?: string
+  fixedBank?: string,
 ): string {
   if (bankStrategy === "agent") {
     return session.agentId;
@@ -149,30 +174,49 @@ function deriveTargetBank(
   return deriveBankId(backfillContextForSession(session), pluginConfig);
 }
 
-export function stableDocumentId(session: ParsedSessionFile, bankId: string): string {
+export function stableDocumentId(
+  session: ParsedSessionFile,
+  bankId: string,
+): string {
   return `backfill::${bankId}::${session.agentId}::${session.sessionId}`;
 }
 
 export function buildBackfillPlan(
   pluginConfig: PluginConfig,
-  opts: BackfillCliOptions
-): { entries: BackfillPlanEntry[]; discoveredSessions: number; skippedEmpty: number } {
+  opts: BackfillCliOptions,
+): {
+  entries: BackfillPlanEntry[];
+  discoveredSessions: number;
+  skippedEmpty: number;
+} {
   const entries: BackfillPlanEntry[] = [];
   let discoveredSessions = 0;
   let skippedEmpty = 0;
 
-  for (const candidate of discoverSessionFiles(opts.openclawRoot, opts.includeArchive)) {
+  for (const candidate of discoverSessionFiles(
+    opts.openclawRoot,
+    opts.includeArchive,
+  )) {
     if (opts.selectedAgents && !opts.selectedAgents.has(candidate.agentId)) {
       continue;
     }
     discoveredSessions += 1;
     const parsed = parseSessionFile(candidate.filePath, candidate.agentId);
-    const retention = prepareRetentionTranscript(parsed.messages, pluginConfig, true);
+    const retention = prepareRetentionTranscript(
+      parsed.messages,
+      pluginConfig,
+      true,
+    );
     if (!retention) {
       skippedEmpty += 1;
       continue;
     }
-    const bankId = deriveTargetBank(parsed, pluginConfig, opts.bankStrategy, opts.fixedBank);
+    const bankId = deriveTargetBank(
+      parsed,
+      pluginConfig,
+      opts.bankStrategy,
+      opts.fixedBank,
+    );
     entries.push({
       filePath: parsed.filePath,
       agentId: parsed.agentId,
@@ -195,7 +239,9 @@ export function loadCheckpoint(checkpointPath: string): BackfillCheckpoint {
   if (!existsSync(checkpointPath)) {
     return { version: 1, entries: {} };
   }
-  const raw = JSON.parse(readFileSync(checkpointPath, "utf8")) as RawBackfillCheckpoint;
+  const raw = JSON.parse(
+    readFileSync(checkpointPath, "utf8"),
+  ) as RawBackfillCheckpoint;
   if (raw.version !== 1 || !raw.entries || typeof raw.entries !== "object") {
     return { version: 1, entries: {} };
   }
@@ -208,16 +254,25 @@ export function loadCheckpoint(checkpointPath: string): BackfillCheckpoint {
           ...entry,
           status: entry.status === "queued" ? "enqueued" : entry.status,
         },
-      ])
+      ]),
     ) as Record<string, BackfillCheckpointEntry>,
   };
 }
 
-export function saveCheckpoint(checkpointPath: string, checkpoint: BackfillCheckpoint): void {
+export function saveCheckpoint(
+  checkpointPath: string,
+  checkpoint: BackfillCheckpoint,
+): void {
   mkdirSync(dirname(checkpointPath), { recursive: true });
-  writeFileSync(checkpointPath, JSON.stringify(checkpoint, null, 2) + "\n", "utf8");
+  writeFileSync(
+    checkpointPath,
+    JSON.stringify(checkpoint, null, 2) + "\n",
+    "utf8",
+  );
 }
 
-export function checkpointKey(entry: Pick<BackfillPlanEntry, "bankId" | "documentId">): string {
+export function checkpointKey(
+  entry: Pick<BackfillPlanEntry, "bankId" | "documentId">,
+): string {
   return `${entry.bankId}::${entry.documentId}`;
 }

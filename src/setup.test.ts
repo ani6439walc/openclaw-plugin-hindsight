@@ -17,7 +17,9 @@ describe("parseCliArgs", () => {
   });
 
   it("parses --config-path and positional config path", () => {
-    expect(parseCliArgs(["--config-path", "/tmp/a.json"]).configPath).toBe("/tmp/a.json");
+    expect(parseCliArgs(["--config-path", "/tmp/a.json"]).configPath).toBe(
+      "/tmp/a.json",
+    );
     expect(parseCliArgs(["/tmp/b.json"]).positional).toBe("/tmp/b.json");
   });
 
@@ -102,11 +104,15 @@ describe("parseCliArgs", () => {
 
   it("rejects flags missing a value", () => {
     expect(() => parseCliArgs(["--mode"])).toThrow(/missing value for --mode/);
-    expect(() => parseCliArgs(["--api-url"])).toThrow(/missing value for --api-url/);
+    expect(() => parseCliArgs(["--api-url"])).toThrow(
+      /missing value for --api-url/,
+    );
   });
 
   it("rejects extra positional args", () => {
-    expect(() => parseCliArgs(["/tmp/a.json", "/tmp/b.json"])).toThrow(/extra positional/);
+    expect(() => parseCliArgs(["/tmp/a.json", "/tmp/b.json"])).toThrow(
+      /extra positional/,
+    );
   });
 });
 
@@ -124,11 +130,18 @@ describe("runNonInteractive", () => {
   });
 
   async function readBack(): Promise<OpenClawConfigShape> {
-    return JSON.parse(await readFile(configPath, "utf8")) as OpenClawConfigShape;
+    return JSON.parse(
+      await readFile(configPath, "utf8"),
+    ) as OpenClawConfigShape;
   }
 
   it("writes a cloud-mode config with the default URL", async () => {
-    const args = parseCliArgs(["--mode", "cloud", "--token-env", "HINDSIGHT_CLOUD_TOKEN"]);
+    const args = parseCliArgs([
+      "--mode",
+      "cloud",
+      "--token-env",
+      "HINDSIGHT_CLOUD_TOKEN",
+    ]);
     const result = await runNonInteractive(args, configPath);
     expect(result.summary).toContain("Cloud");
     const cfg = await readBack();
@@ -159,7 +172,12 @@ describe("runNonInteractive", () => {
   });
 
   it("writes a cloud-mode config with an inline token (--token)", async () => {
-    const args = parseCliArgs(["--mode", "cloud", "--token", "hsk_direct_value"]);
+    const args = parseCliArgs([
+      "--mode",
+      "cloud",
+      "--token",
+      "hsk_direct_value",
+    ]);
     await runNonInteractive(args, configPath);
     const cfg = await readBack();
     const pc = cfg.plugins?.entries?.[PLUGIN_ID]?.config ?? {};
@@ -169,7 +187,9 @@ describe("runNonInteractive", () => {
 
   it("rejects cloud mode without --token or --token-env", async () => {
     const args = parseCliArgs(["--mode", "cloud"]);
-    await expect(runNonInteractive(args, configPath)).rejects.toThrow(/--token .*--token-env/);
+    await expect(runNonInteractive(args, configPath)).rejects.toThrow(
+      /--token .*--token-env/,
+    );
   });
 
   it("rejects cloud mode with both --token and --token-env", async () => {
@@ -181,12 +201,16 @@ describe("runNonInteractive", () => {
       "--token-env",
       "HINDSIGHT_CLOUD_TOKEN",
     ]);
-    await expect(runNonInteractive(args, configPath)).rejects.toThrow(/mutually exclusive/);
+    await expect(runNonInteractive(args, configPath)).rejects.toThrow(
+      /mutually exclusive/,
+    );
   });
 
   it("rejects cloud mode with a bad token env var name", async () => {
     const args = parseCliArgs(["--mode", "cloud", "--token-env", "bad-name"]);
-    await expect(runNonInteractive(args, configPath)).rejects.toThrow(/UPPER_SNAKE_CASE/);
+    await expect(runNonInteractive(args, configPath)).rejects.toThrow(
+      /UPPER_SNAKE_CASE/,
+    );
   });
 
   it("writes an api-mode config without token", async () => {
@@ -216,12 +240,16 @@ describe("runNonInteractive", () => {
     await runNonInteractive(args, configPath);
     const cfg = await readBack();
     const pc = cfg.plugins?.entries?.[PLUGIN_ID]?.config ?? {};
-    expect((pc.hindsightApiToken as { id: string }).id).toBe("HINDSIGHT_API_TOKEN");
+    expect((pc.hindsightApiToken as { id: string }).id).toBe(
+      "HINDSIGHT_API_TOKEN",
+    );
   });
 
   it("rejects api mode without --api-url", async () => {
     const args = parseCliArgs(["--mode", "api"]);
-    await expect(runNonInteractive(args, configPath)).rejects.toThrow(/--api-url/);
+    await expect(runNonInteractive(args, configPath)).rejects.toThrow(
+      /--api-url/,
+    );
   });
 
   it("rejects api mode with conflicting --token-env and --no-token", async () => {
@@ -234,7 +262,9 @@ describe("runNonInteractive", () => {
       "FOO",
       "--no-token",
     ]);
-    await expect(runNonInteractive(args, configPath)).rejects.toThrow(/mutually exclusive/);
+    await expect(runNonInteractive(args, configPath)).rejects.toThrow(
+      /mutually exclusive/,
+    );
   });
 
   it("writes an embedded-mode config for openai", async () => {
@@ -258,7 +288,12 @@ describe("runNonInteractive", () => {
   });
 
   it("writes an embedded-mode config for a no-key provider", async () => {
-    const args = parseCliArgs(["--mode", "embedded", "--provider", "claude-code"]);
+    const args = parseCliArgs([
+      "--mode",
+      "embedded",
+      "--provider",
+      "claude-code",
+    ]);
     await runNonInteractive(args, configPath);
     const cfg = await readBack();
     const pc = cfg.plugins?.entries?.[PLUGIN_ID]?.config ?? {};
@@ -268,12 +303,16 @@ describe("runNonInteractive", () => {
 
   it("rejects embedded mode without --provider", async () => {
     const args = parseCliArgs(["--mode", "embedded"]);
-    await expect(runNonInteractive(args, configPath)).rejects.toThrow(/--provider/);
+    await expect(runNonInteractive(args, configPath)).rejects.toThrow(
+      /--provider/,
+    );
   });
 
   it("rejects embedded mode with a key-requiring provider but no --api-key or --api-key-env", async () => {
     const args = parseCliArgs(["--mode", "embedded", "--provider", "openai"]);
-    await expect(runNonInteractive(args, configPath)).rejects.toThrow(/--api-key .*--api-key-env/);
+    await expect(runNonInteractive(args, configPath)).rejects.toThrow(
+      /--api-key .*--api-key-env/,
+    );
   });
 
   it("rejects embedded mode with both --api-key and --api-key-env", async () => {
@@ -287,7 +326,9 @@ describe("runNonInteractive", () => {
       "--api-key-env",
       "OPENAI_API_KEY",
     ]);
-    await expect(runNonInteractive(args, configPath)).rejects.toThrow(/mutually exclusive/);
+    await expect(runNonInteractive(args, configPath)).rejects.toThrow(
+      /mutually exclusive/,
+    );
   });
 
   it("writes an embedded-mode config with an inline API key (--api-key)", async () => {
@@ -318,15 +359,17 @@ describe("runNonInteractive", () => {
         "--api-key-env",
         "OPENAI_API_KEY",
       ]),
-      configPath
+      configPath,
     );
     let cfg = await readBack();
-    expect(cfg.plugins?.entries?.[PLUGIN_ID]?.config?.llmProvider).toBe("openai");
+    expect(cfg.plugins?.entries?.[PLUGIN_ID]?.config?.llmProvider).toBe(
+      "openai",
+    );
 
     // Now switch to cloud mode — local LLM fields should be gone
     await runNonInteractive(
       parseCliArgs(["--mode", "cloud", "--token-env", "HINDSIGHT_CLOUD_TOKEN"]),
-      configPath
+      configPath,
     );
     cfg = await readBack();
     const pc = cfg.plugins?.entries?.[PLUGIN_ID]?.config ?? {};

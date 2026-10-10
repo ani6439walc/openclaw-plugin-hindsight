@@ -29,10 +29,17 @@ describe("RetainQueue operation id persistence", () => {
   it("reuses the initial operation id after a lost acknowledgement and restart", async () => {
     const queuePath = makeQueuePath();
     const operationId = createAsyncRetainOperationId();
-    const request = buildRetainRequest("remember this", 1, {}, {}, 1_700_000_000_000, {
-      turnIndex: 1,
-      operationId,
-    });
+    const request = buildRetainRequest(
+      "remember this",
+      1,
+      {},
+      {},
+      1_700_000_000_000,
+      {
+        turnIndex: 1,
+        operationId,
+      },
+    );
     const retain = vi
       .fn()
       .mockRejectedValueOnce(new Error("acknowledgement lost"))
@@ -40,7 +47,9 @@ describe("RetainQueue operation id persistence", () => {
     const rawClient = { retain } as unknown as HindsightClient;
     const bankClient = scopeClient(rawClient, "bank-1");
 
-    await expect(bankClient.retain(request, "supported")).rejects.toThrow("acknowledgement lost");
+    await expect(bankClient.retain(request, "supported")).rejects.toThrow(
+      "acknowledgement lost",
+    );
     const initialOperationId = retain.mock.calls[0][2].operationId;
 
     const queue = new RetainQueue({ filePath: queuePath });
@@ -72,7 +81,7 @@ describe("RetainQueue operation id persistence", () => {
 
     const firstReplayOperationId = retain.mock.calls[0][2].operationId;
     expect(firstReplayOperationId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
     const afterFailure = new RetainQueue({ filePath: queuePath });
     expect(afterFailure.peek()[0].operationId).toBe(firstReplayOperationId);
@@ -134,7 +143,13 @@ describe("RetainQueue operation id persistence", () => {
       });
     const rawClient = { retain } as unknown as HindsightClient;
 
-    await flushRetainQueue(queue, rawClient, "unsupported", 0, controller.signal);
+    await flushRetainQueue(
+      queue,
+      rawClient,
+      "unsupported",
+      0,
+      controller.signal,
+    );
 
     expect(queue.peek().map((item) => item.content)).toEqual(["second"]);
   });
@@ -154,7 +169,7 @@ describe("RetainQueue operation id persistence", () => {
         }),
         "not-json",
       ].join("\n") + "\n",
-      "utf8"
+      "utf8",
     );
 
     const queue = new RetainQueue({ filePath: queuePath });

@@ -117,17 +117,17 @@ openclaw config set plugins.entries.hindsight.config.hindsightApiToken \
 previously came from shell env vars must now go through OpenClaw's plugin config
 (with SecretRef for credentials). Concrete mappings:
 
-| Old (0.5.x)                              | New (0.6.0)                                                                                                                                                                                                |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Old (0.5.x)                              | New (0.6.0)                                                                                                                                                                              |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY=…` (auto-detected)       | `openclaw config set plugins.entries.hindsight.config.llmProvider openai` <br> `openclaw config set plugins.entries.hindsight.config.llmApiKey --ref-source env --ref-id OPENAI_API_KEY` |
-| `HINDSIGHT_API_LLM_PROVIDER=…`           | `openclaw config set plugins.entries.hindsight.config.llmProvider …`                                                                                                                              |
-| `HINDSIGHT_API_LLM_MODEL=…`              | `openclaw config set plugins.entries.hindsight.config.llmModel …`                                                                                                                                 |
-| `HINDSIGHT_API_LLM_API_KEY=…`            | `openclaw config set plugins.entries.hindsight.config.llmApiKey --ref-source env --ref-id …`                                                                                                      |
-| `HINDSIGHT_API_LLM_BASE_URL=…`           | `openclaw config set plugins.entries.hindsight.config.llmBaseUrl …`                                                                                                                               |
-| `HINDSIGHT_EMBED_API_URL=…`              | `openclaw config set plugins.entries.hindsight.config.hindsightApiUrl …`                                                                                                                          |
-| `HINDSIGHT_EMBED_API_TOKEN=…`            | `openclaw config set plugins.entries.hindsight.config.hindsightApiToken --ref-source env --ref-id …`                                                                                              |
-| `HINDSIGHT_BANK_ID=…`                    | `openclaw config set plugins.entries.hindsight.config.bankId …`                                                                                                                                   |
-| `llmApiKeyEnv: "MY_KEY"` (plugin config) | `llmApiKey` configured as a SecretRef with `--ref-id MY_KEY`                                                                                                                                               |
+| `HINDSIGHT_API_LLM_PROVIDER=…`           | `openclaw config set plugins.entries.hindsight.config.llmProvider …`                                                                                                                     |
+| `HINDSIGHT_API_LLM_MODEL=…`              | `openclaw config set plugins.entries.hindsight.config.llmModel …`                                                                                                                        |
+| `HINDSIGHT_API_LLM_API_KEY=…`            | `openclaw config set plugins.entries.hindsight.config.llmApiKey --ref-source env --ref-id …`                                                                                             |
+| `HINDSIGHT_API_LLM_BASE_URL=…`           | `openclaw config set plugins.entries.hindsight.config.llmBaseUrl …`                                                                                                                      |
+| `HINDSIGHT_EMBED_API_URL=…`              | `openclaw config set plugins.entries.hindsight.config.hindsightApiUrl …`                                                                                                                 |
+| `HINDSIGHT_EMBED_API_TOKEN=…`            | `openclaw config set plugins.entries.hindsight.config.hindsightApiToken --ref-source env --ref-id …`                                                                                     |
+| `HINDSIGHT_BANK_ID=…`                    | `openclaw config set plugins.entries.hindsight.config.bankId …`                                                                                                                          |
+| `llmApiKeyEnv: "MY_KEY"` (plugin config) | `llmApiKey` configured as a SecretRef with `--ref-id MY_KEY`                                                                                                                             |
 
 If your shell already exports `OPENAI_API_KEY`, the SecretRef config above resolves
 to the same value at startup — no need to change your shell setup, just point the

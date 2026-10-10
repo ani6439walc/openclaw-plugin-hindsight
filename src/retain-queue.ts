@@ -10,7 +10,7 @@ import {
   openSync,
   closeSync,
   fsyncSync,
-  chmodSync
+  chmodSync,
 } from "fs";
 import { readdir, readFile, rename, unlink } from "fs/promises";
 import { randomUUID, createHash } from "crypto";
@@ -89,7 +89,7 @@ export class RetainQueue {
           opts.filePath +
             (existsSync(opts.filePath + ".migrated")
               ? `.migrated-${randomUUID()}`
-              : ".migrated")
+              : ".migrated"),
         );
         this.syncDirectory(dirname(resolve(opts.filePath)));
       } catch (error) {
@@ -100,7 +100,7 @@ export class RetainQueue {
   enqueue(
     bankId: string,
     request: QueuedRetainPayload,
-    metadata?: Record<string, unknown>
+    metadata?: Record<string, unknown>,
   ): string {
     const item: QueuedRetain = {
       ...request,
@@ -109,7 +109,7 @@ export class RetainQueue {
       documentId: request.documentId || "conversation",
       metadata: metadata || request.metadata || {},
       createdAt: new Date().toISOString(),
-      createdOrder: process.hrtime.bigint().toString().padStart(30, "0")
+      createdOrder: process.hrtime.bigint().toString().padStart(30, "0"),
     };
     this.write(item);
     return item.id;
@@ -120,11 +120,11 @@ export class RetainQueue {
   /** One asynchronous snapshot per worker cycle; producers can keep adding files. */
   async batch(
     limit = 50,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<{ items: QueuedRetain[]; pending: number }> {
     signal?.throwIfAborted();
     let names = (await readdir(this.directory)).filter((name) =>
-      name.endsWith(".json")
+      name.endsWith(".json"),
     );
     // One-time normalization preserves global FIFO for older hash-only files.
     // All I/O yields; subsequent cycles read only the selected payload batch.
@@ -136,7 +136,7 @@ export class RetainQueue {
       const path = join(this.directory, name);
       try {
         const item = parseQueuedRetain(
-          await readFile(path, { encoding: "utf8", signal })
+          await readFile(path, { encoding: "utf8", signal }),
         );
         signal?.throwIfAborted();
         if (!item) {
@@ -236,7 +236,7 @@ export class RetainQueue {
   cleanup(): number {
     if (this.maxAgeMs < 0) return 0;
     const expired = this.readAll().filter(
-      (item) => new Date(item.createdAt).getTime() < Date.now() - this.maxAgeMs
+      (item) => new Date(item.createdAt).getTime() < Date.now() - this.maxAgeMs,
     );
     this.removeMany(expired.map((item) => item.id));
     return expired.length;
@@ -248,7 +248,7 @@ export class RetainQueue {
   private orderedPath(item: QueuedRetain): string {
     return join(
       this.directory,
-      `${String(Date.parse(item.createdAt)).padStart(16, "0")}-${item.createdOrder ?? "0".repeat(30)}-${this.hash(item.id)}.json`
+      `${String(Date.parse(item.createdAt)).padStart(16, "0")}-${item.createdOrder ?? "0".repeat(30)}-${this.hash(item.id)}.json`,
     );
   }
   private isOrderedName(name: string): boolean {

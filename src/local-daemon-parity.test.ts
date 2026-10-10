@@ -27,7 +27,8 @@ vi.mock("@vectorize-io/hindsight-all", () => ({
 }));
 
 const plugin = (await import("./index.js")).default;
-const { isAppendModeSupported, getDocumentIdBootToken } = await import("./index.js");
+const { isAppendModeSupported, getDocumentIdBootToken } =
+  await import("./index.js");
 
 import type { MoltbotPluginAPI } from "./types.js";
 
@@ -44,7 +45,7 @@ function makeApi(config: Record<string, unknown>): {
   let service: StartedService | undefined;
   const infoLines: string[] = [];
   const api = {
-    config: { plugins: { entries: { "hindsight": { config } } } },
+    config: { plugins: { entries: { hindsight: { config } } } },
     registerService: (svc: StartedService) => {
       service = svc;
     },
@@ -82,7 +83,10 @@ afterEach(() => {
 });
 
 function mockVersionEndpoint(payload: unknown): ReturnType<typeof vi.fn> {
-  const fetchMock = vi.fn(async () => ({ ok: true, json: async () => payload }));
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    json: async () => payload,
+  }));
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   return fetchMock;
 }
@@ -139,11 +143,16 @@ describe("local-daemon mode parity (#3686)", () => {
     vi.resetModules();
     const restarted = await import("./index.js");
 
-    expect(restarted.getDocumentIdBootToken()).not.toBe(getDocumentIdBootToken());
+    expect(restarted.getDocumentIdBootToken()).not.toBe(
+      getDocumentIdBootToken(),
+    );
   });
 
   it("opens the retain queue so a daemon that is down cannot drop retains", async () => {
-    mockVersionEndpoint({ api_version: "0.9.1", features: { store_document_text: true } });
+    mockVersionEndpoint({
+      api_version: "0.9.1",
+      features: { store_document_text: true },
+    });
     const queuePath = join(tempDir, "queue.jsonl");
     writeFileSync(
       queuePath,
@@ -155,7 +164,7 @@ describe("local-daemon mode parity (#3686)", () => {
         metadata: {},
         createdAt: new Date().toISOString(),
       }) + "\n",
-      "utf8"
+      "utf8",
     );
     const { api, service, infoLines } = makeApi({
       llmProvider: "openai",
@@ -166,7 +175,11 @@ describe("local-daemon mode parity (#3686)", () => {
     plugin(api);
     await service().start();
     try {
-      expect(infoLines.some((line) => line.includes("retain queue: 1 items pending"))).toBe(true);
+      expect(
+        infoLines.some((line) =>
+          line.includes("retain queue: 1 items pending"),
+        ),
+      ).toBe(true);
     } finally {
       await service().stop();
     }

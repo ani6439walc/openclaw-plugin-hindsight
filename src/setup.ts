@@ -128,7 +128,9 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       case "--mode": {
         const value = next();
         if (value !== "cloud" && value !== "api" && value !== "embedded") {
-          throw new Error(`invalid --mode: ${value} (expected cloud | api | embedded)`);
+          throw new Error(
+            `invalid --mode: ${value} (expected cloud | api | embedded)`,
+          );
         }
         args.mode = value;
         break;
@@ -177,13 +179,19 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 
 function buildCloudInput(args: ParsedCliArgs): CloudSetupInput {
   if (!args.token && !args.tokenEnv) {
-    throw new Error("--mode cloud requires --token <value> or --token-env <VAR>");
+    throw new Error(
+      "--mode cloud requires --token <value> or --token-env <VAR>",
+    );
   }
   if (args.token && args.tokenEnv) {
-    throw new Error("--token and --token-env are mutually exclusive — pick one");
+    throw new Error(
+      "--token and --token-env are mutually exclusive — pick one",
+    );
   }
   if (args.tokenEnv && !isValidEnvVarName(args.tokenEnv)) {
-    throw new Error(`--token-env must be an UPPER_SNAKE_CASE env var name, got: ${args.tokenEnv}`);
+    throw new Error(
+      `--token-env must be an UPPER_SNAKE_CASE env var name, got: ${args.tokenEnv}`,
+    );
   }
   return {
     apiUrl: args.apiUrl,
@@ -196,14 +204,17 @@ function buildApiInput(args: ParsedCliArgs): ApiSetupInput {
   if (!args.apiUrl) {
     throw new Error("--mode api requires --api-url <url>");
   }
-  const credFlagCount = (args.token ? 1 : 0) + (args.tokenEnv ? 1 : 0) + (args.noToken ? 1 : 0);
+  const credFlagCount =
+    (args.token ? 1 : 0) + (args.tokenEnv ? 1 : 0) + (args.noToken ? 1 : 0);
   if (credFlagCount > 1) {
     throw new Error(
-      "--token, --token-env, and --no-token are mutually exclusive — pick at most one"
+      "--token, --token-env, and --no-token are mutually exclusive — pick at most one",
     );
   }
   if (args.tokenEnv && !isValidEnvVarName(args.tokenEnv)) {
-    throw new Error(`--token-env must be an UPPER_SNAKE_CASE env var name, got: ${args.tokenEnv}`);
+    throw new Error(
+      `--token-env must be an UPPER_SNAKE_CASE env var name, got: ${args.tokenEnv}`,
+    );
   }
   return {
     apiUrl: args.apiUrl,
@@ -217,18 +228,20 @@ function buildEmbeddedInput(args: ParsedCliArgs): EmbeddedSetupInput {
     throw new Error("--mode embedded requires --provider <id>");
   }
   if (args.apiKey && args.apiKeyEnv) {
-    throw new Error("--api-key and --api-key-env are mutually exclusive — pick one");
+    throw new Error(
+      "--api-key and --api-key-env are mutually exclusive — pick one",
+    );
   }
   const needsKey = !NO_KEY_PROVIDERS.has(args.provider);
   if (needsKey) {
     if (!args.apiKey && !args.apiKeyEnv) {
       throw new Error(
-        `--provider ${args.provider} requires --api-key <value> or --api-key-env <VAR> (providers that need no key: ${[...NO_KEY_PROVIDERS].join(", ")})`
+        `--provider ${args.provider} requires --api-key <value> or --api-key-env <VAR> (providers that need no key: ${[...NO_KEY_PROVIDERS].join(", ")})`,
       );
     }
     if (args.apiKeyEnv && !isValidEnvVarName(args.apiKeyEnv)) {
       throw new Error(
-        `--api-key-env must be an UPPER_SNAKE_CASE env var name, got: ${args.apiKeyEnv}`
+        `--api-key-env must be an UPPER_SNAKE_CASE env var name, got: ${args.apiKeyEnv}`,
       );
     }
   }
@@ -242,7 +255,7 @@ function buildEmbeddedInput(args: ParsedCliArgs): EmbeddedSetupInput {
 
 export async function runNonInteractive(
   args: ParsedCliArgs,
-  configPath: string
+  configPath: string,
 ): Promise<{ summary: string; configPath: string }> {
   if (!args.mode) {
     throw new Error("runNonInteractive called without --mode");
@@ -290,7 +303,10 @@ function assertNotCancelled<T>(value: T): asserts value is Exclude<T, symbol> {
 // of forcing the user to paste it again on every wizard rerun. Skipped when
 // the existing value is a SecretRef object (env-var reference) or absent —
 // SecretRefs aren't pasteable here so the regular prompt path handles them.
-async function promptInlineSecretWithReuse(message: string, existing: unknown): Promise<string> {
+async function promptInlineSecretWithReuse(
+  message: string,
+  existing: unknown,
+): Promise<string> {
   if (typeof existing === "string" && existing.trim().length > 0) {
     const reuse = await p.confirm({
       message: `Reuse the existing token (ends in …${maskSecret(existing).slice(-8)})?`,
@@ -307,7 +323,9 @@ async function promptInlineSecretWithReuse(message: string, existing: unknown): 
   return value as string;
 }
 
-async function promptCloud(pluginConfig: Record<string, unknown>): Promise<string> {
+async function promptCloud(
+  pluginConfig: Record<string, unknown>,
+): Promise<string> {
   const existingUrl =
     typeof pluginConfig.hindsightApiUrl === "string"
       ? (pluginConfig.hindsightApiUrl as string).trim()
@@ -337,7 +355,7 @@ async function promptCloud(pluginConfig: Record<string, unknown>): Promise<strin
 
   const token = await promptInlineSecretWithReuse(
     "Hindsight Cloud API token (paste the value, it will be masked)",
-    pluginConfig.hindsightApiToken
+    pluginConfig.hindsightApiToken,
   );
 
   const input = { apiUrl, token };
@@ -345,7 +363,9 @@ async function promptCloud(pluginConfig: Record<string, unknown>): Promise<strin
   return summarizeCloud(input);
 }
 
-async function promptApi(pluginConfig: Record<string, unknown>): Promise<string> {
+async function promptApi(
+  pluginConfig: Record<string, unknown>,
+): Promise<string> {
   const existingUrl =
     typeof pluginConfig.hindsightApiUrl === "string"
       ? (pluginConfig.hindsightApiUrl as string).trim()
@@ -371,7 +391,7 @@ async function promptApi(pluginConfig: Record<string, unknown>): Promise<string>
   if (needsToken) {
     token = await promptInlineSecretWithReuse(
       "API token (paste the value, it will be masked)",
-      pluginConfig.hindsightApiToken
+      pluginConfig.hindsightApiToken,
     );
   }
 
@@ -380,7 +400,9 @@ async function promptApi(pluginConfig: Record<string, unknown>): Promise<string>
   return summarizeApi(input);
 }
 
-async function promptEmbedded(pluginConfig: Record<string, unknown>): Promise<string> {
+async function promptEmbedded(
+  pluginConfig: Record<string, unknown>,
+): Promise<string> {
   const provider = await p.select({
     message: "LLM provider used by the Hindsight memory daemon",
     options: [
@@ -398,7 +420,11 @@ async function promptEmbedded(pluginConfig: Record<string, unknown>): Promise<st
         label: "OpenAI Codex",
         hint: "no API key needed (uses codex auth login)",
       },
-      { value: "ollama", label: "Ollama", hint: "no API key needed (local models)" },
+      {
+        value: "ollama",
+        label: "Ollama",
+        hint: "no API key needed (local models)",
+      },
     ],
   });
   assertNotCancelled(provider);
@@ -408,7 +434,7 @@ async function promptEmbedded(pluginConfig: Record<string, unknown>): Promise<st
   if (!NO_KEY_PROVIDERS.has(llmProvider)) {
     apiKey = await promptInlineSecretWithReuse(
       `${llmProvider} API key (paste the value, it will be masked)`,
-      pluginConfig.llmApiKey
+      pluginConfig.llmApiKey,
     );
   }
 
@@ -435,7 +461,7 @@ async function promptEmbedded(pluginConfig: Record<string, unknown>): Promise<st
 }
 
 async function runInteractive(
-  configPath: string
+  configPath: string,
 ): Promise<{ summary: string; configPath: string }> {
   p.intro("🦞 Hindsight Memory setup for OpenClaw");
   p.log.info(`Config file: ${configPath}`);
@@ -446,8 +472,16 @@ async function runInteractive(
   const mode = await p.select({
     message: "How do you want to run Hindsight?",
     options: [
-      { value: "cloud", label: "Cloud", hint: "managed Hindsight, no local setup" },
-      { value: "api", label: "External API", hint: "your own running Hindsight deployment" },
+      {
+        value: "cloud",
+        label: "Cloud",
+        hint: "managed Hindsight, no local setup",
+      },
+      {
+        value: "api",
+        label: "External API",
+        hint: "your own running Hindsight deployment",
+      },
       {
         value: "embedded",
         label: "Embedded daemon",
@@ -484,7 +518,7 @@ async function runInteractive(
       "  openclaw config set plugins.entries.hindsight.config.hindsightApiToken \\",
       "      --ref-source env --ref-id HINDSIGHT_CLOUD_TOKEN",
     ].join("\n"),
-    "Hindsight Memory configured"
+    "Hindsight Memory configured",
   );
   p.outro("Done.");
   return { summary, configPath };
@@ -499,7 +533,9 @@ async function main(): Promise<void> {
   try {
     args = parseCliArgs(process.argv.slice(2));
   } catch (err) {
-    console.error(`hindsight-openclaw-setup: ${err instanceof Error ? err.message : err}`);
+    console.error(
+      `hindsight-openclaw-setup: ${err instanceof Error ? err.message : err}`,
+    );
     console.error();
     console.error(usage());
     process.exit(2);
@@ -510,7 +546,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  const configPath = args.configPath ?? args.positional ?? DEFAULT_OPENCLAW_CONFIG_PATH;
+  const configPath =
+    args.configPath ?? args.positional ?? DEFAULT_OPENCLAW_CONFIG_PATH;
 
   if (args.mode) {
     // Non-interactive path for scripts and CI.
@@ -519,7 +556,9 @@ async function main(): Promise<void> {
       console.log(`Hindsight Memory configured: ${summary}`);
       console.log(`Saved to ${configPath}`);
     } catch (err) {
-      console.error(`hindsight-openclaw-setup: ${err instanceof Error ? err.message : err}`);
+      console.error(
+        `hindsight-openclaw-setup: ${err instanceof Error ? err.message : err}`,
+      );
       process.exit(1);
     }
     return;

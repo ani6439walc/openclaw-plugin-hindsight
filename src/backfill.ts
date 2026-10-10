@@ -17,7 +17,11 @@ function loadPackageVersion(): string {
 }
 
 const USER_AGENT = `hindsight-openclaw/${loadPackageVersion()}`;
-import { DEFAULT_RETAIN_CONTEXT, detectExternalApi, detectLLMConfig } from "./index.js";
+import {
+  DEFAULT_RETAIN_CONTEXT,
+  detectExternalApi,
+  detectLLMConfig,
+} from "./index.js";
 import type { BankStats, PluginConfig } from "./types.js";
 import {
   buildBackfillPlan,
@@ -145,7 +149,11 @@ function parseArgs(argv: string[]): ParsedArgs {
         break;
       case "--bank-strategy": {
         const value = next();
-        if (value !== "mirror-config" && value !== "agent" && value !== "fixed") {
+        if (
+          value !== "mirror-config" &&
+          value !== "agent" &&
+          value !== "fixed"
+        ) {
           throw new Error(`invalid bank strategy: ${value}`);
         }
         args.bankStrategy = value;
@@ -179,7 +187,9 @@ function parseArgs(argv: string[]): ParsedArgs {
     args.checkpointPath = defaultCheckpointPath(args.openclawRoot);
   }
   if (args.bankStrategy === "fixed" && !args.fixedBank) {
-    throw new Error("--fixed-bank is required when --bank-strategy fixed is used");
+    throw new Error(
+      "--fixed-bank is required when --bank-strategy fixed is used",
+    );
   }
   return args;
 }
@@ -187,7 +197,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 function inferApiSettings(
   pluginConfig: PluginConfig,
   explicitApiUrl?: string,
-  explicitApiToken?: string
+  explicitApiToken?: string,
 ): { apiUrl: string; apiToken?: string } {
   const apiUrl =
     explicitApiUrl ||
@@ -197,7 +207,10 @@ function inferApiSettings(
   return { apiUrl, apiToken: apiToken || undefined };
 }
 
-async function checkHealth(apiUrl: string, apiToken?: string): Promise<boolean> {
+async function checkHealth(
+  apiUrl: string,
+  apiToken?: string,
+): Promise<boolean> {
   try {
     const headers: Record<string, string> = { "User-Agent": USER_AGENT };
     if (apiToken) headers.Authorization = `Bearer ${apiToken}`;
@@ -215,20 +228,20 @@ async function checkHealth(apiUrl: string, apiToken?: string): Promise<boolean> 
 export function filterEntriesForResume(
   entries: BackfillPlanEntry[],
   checkpoint: BackfillCheckpoint,
-  resume: boolean
+  resume: boolean,
 ): BackfillPlanEntry[] {
   if (!resume) {
     return entries;
   }
   return entries.filter(
-    (entry) => checkpoint.entries[checkpointKey(entry)]?.status !== "completed"
+    (entry) => checkpoint.entries[checkpointKey(entry)]?.status !== "completed",
   );
 }
 
 export function splitResumeEntries(
   entries: BackfillPlanEntry[],
   checkpoint: BackfillCheckpoint,
-  waitUntilDrained: boolean
+  waitUntilDrained: boolean,
 ): { entriesToEnqueue: BackfillPlanEntry[]; alreadyEnqueuedKeys: string[] } {
   const entriesToEnqueue: BackfillPlanEntry[] = [];
   const alreadyEnqueuedKeys: string[] = [];
@@ -251,7 +264,7 @@ export function applyDrainResults(
   checkpoint: BackfillCheckpoint,
   touchedEntriesByBank: Map<string, string[]>,
   finalStatsByBank: Map<string, BankStats>,
-  initialFailedOperationsByBank: Map<string, number>
+  initialFailedOperationsByBank: Map<string, number>,
 ): { completed: number; unresolved: number; warnings: string[] } {
   let completed = 0;
   let unresolved = 0;
@@ -264,11 +277,11 @@ export function applyDrainResults(
 
     if (hasNewFailures) {
       warnings.push(
-        `bank ${bankId} reported ${stats!.failed_operations - initialFailed} new failed operations during drain; leaving ${entryKeys.length} checkpoint entries enqueued`
+        `bank ${bankId} reported ${stats!.failed_operations - initialFailed} new failed operations during drain; leaving ${entryKeys.length} checkpoint entries enqueued`,
       );
     } else if (!stats || stats.pending_operations > 0) {
       warnings.push(
-        `bank ${bankId} did not finish draining cleanly; leaving ${entryKeys.length} checkpoint entries enqueued`
+        `bank ${bankId} did not finish draining cleanly; leaving ${entryKeys.length} checkpoint entries enqueued`,
       );
     }
 
@@ -297,9 +310,13 @@ export function applyDrainResults(
 export async function createBackfillRuntime(
   pluginConfig: PluginConfig,
   explicitApiUrl?: string,
-  explicitApiToken?: string
+  explicitApiToken?: string,
 ): Promise<BackfillRuntime> {
-  const explicit = inferApiSettings(pluginConfig, explicitApiUrl, explicitApiToken);
+  const explicit = inferApiSettings(
+    pluginConfig,
+    explicitApiUrl,
+    explicitApiToken,
+  );
   const externalApi = detectExternalApi(pluginConfig);
   const useExternalApi = !!(
     explicitApiUrl ||
@@ -335,7 +352,9 @@ export async function createBackfillRuntime(
       HINDSIGHT_API_LLM_API_KEY: llmConfig.apiKey || "",
       HINDSIGHT_API_LLM_MODEL: llmConfig.model,
       HINDSIGHT_API_LLM_BASE_URL: llmConfig.baseUrl,
-      HINDSIGHT_EMBED_DAEMON_IDLE_TIMEOUT: String(pluginConfig.daemonIdleTimeout ?? 0),
+      HINDSIGHT_EMBED_DAEMON_IDLE_TIMEOUT: String(
+        pluginConfig.daemonIdleTimeout ?? 0,
+      ),
     },
   });
   await manager.start();
@@ -356,13 +375,16 @@ export async function createBackfillRuntime(
 async function fetchBankStats(
   baseUrl: string,
   apiToken: string | undefined,
-  bankId: string
+  bankId: string,
 ): Promise<BankStats> {
   const headers: Record<string, string> = { "User-Agent": USER_AGENT };
   if (apiToken) headers.Authorization = `Bearer ${apiToken}`;
-  const res = await fetch(`${baseUrl}/v1/default/banks/${encodeURIComponent(bankId)}/stats`, {
-    headers,
-  });
+  const res = await fetch(
+    `${baseUrl}/v1/default/banks/${encodeURIComponent(bankId)}/stats`,
+    {
+      headers,
+    },
+  );
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}: ${await res.text().catch(() => "")}`);
   }
@@ -373,7 +395,7 @@ async function waitForBankQueue(
   apiUrl: string,
   apiToken: string | undefined,
   bankId: string,
-  maxPendingOperations: number
+  maxPendingOperations: number,
 ): Promise<void> {
   for (;;) {
     try {
@@ -394,7 +416,7 @@ async function waitForBankQueue(
 async function getInitialBankStats(
   apiUrl: string,
   apiToken: string | undefined,
-  bankId: string
+  bankId: string,
 ): Promise<BankStats | null> {
   try {
     return await fetchBankStats(apiUrl, apiToken, bankId);
@@ -409,15 +431,22 @@ async function getInitialBankStats(
 async function waitForBanksToDrain(
   apiUrl: string,
   apiToken: string | undefined,
-  bankIds: Iterable<string>
+  bankIds: Iterable<string>,
 ): Promise<Map<string, BankStats>> {
   const ids = Array.from(bankIds);
   for (;;) {
     const stats = await Promise.all(
-      ids.map(async (bankId) => ({ bankId, stats: await fetchBankStats(apiUrl, apiToken, bankId) }))
+      ids.map(async (bankId) => ({
+        bankId,
+        stats: await fetchBankStats(apiUrl, apiToken, bankId),
+      })),
     );
-    const statsByBank = new Map(stats.map(({ bankId, stats: bankStats }) => [bankId, bankStats]));
-    const pending = stats.filter(({ stats: bankStats }) => bankStats.pending_operations > 0);
+    const statsByBank = new Map(
+      stats.map(({ bankId, stats: bankStats }) => [bankId, bankStats]),
+    );
+    const pending = stats.filter(
+      ({ stats: bankStats }) => bankStats.pending_operations > 0,
+    );
     if (pending.length === 0) {
       return statsByBank;
     }
@@ -425,15 +454,17 @@ async function waitForBanksToDrain(
       pending
         .map(
           ({ bankId, stats: bankStats }) =>
-            `${bankId}\tpending_operations=${bankStats.pending_operations}\tfailed_operations=${bankStats.failed_operations}\tpending_consolidation=${bankStats.pending_consolidation}`
+            `${bankId}\tpending_operations=${bankStats.pending_operations}\tfailed_operations=${bankStats.failed_operations}\tpending_consolidation=${bankStats.pending_consolidation}`,
         )
-        .join("\n")
+        .join("\n"),
     );
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }
 }
 
-export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
+export async function runCli(
+  argv: string[] = process.argv.slice(2),
+): Promise<void> {
   const args = parseArgs(argv);
   if (!existsSync(join(args.openclawRoot, "openclaw.json"))) {
     throw new Error(`could not find openclaw.json under ${args.openclawRoot}`);
@@ -451,19 +482,23 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   const checkpoint = loadCheckpoint(args.checkpointPath);
   const { entries, discoveredSessions, skippedEmpty } = buildBackfillPlan(
     pluginConfig,
-    backfillOptions
+    backfillOptions,
   );
-  const plannedEntries = filterEntriesForResume(entries, checkpoint, args.resume);
+  const plannedEntries = filterEntriesForResume(
+    entries,
+    checkpoint,
+    args.resume,
+  );
   const { entriesToEnqueue, alreadyEnqueuedKeys } = splitResumeEntries(
     plannedEntries,
     checkpoint,
-    args.waitUntilDrained
+    args.waitUntilDrained,
   );
 
   if (args.dryRun) {
     for (const entry of plannedEntries) {
       console.log(
-        `${entry.agentId}\t${entry.bankId}\t${entry.sessionId}\tmsgs=${entry.messageCount}\tchars=${entry.transcript.length}`
+        `${entry.agentId}\t${entry.bankId}\t${entry.sessionId}\tmsgs=${entry.messageCount}\tchars=${entry.transcript.length}`,
       );
     }
     const summary = {
@@ -475,14 +510,23 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       bank_strategy: args.bankStrategy,
       checkpoint_path: args.checkpointPath,
     };
-    console.log(args.json ? JSON.stringify(summary, null, 2) : JSON.stringify(summary));
+    console.log(
+      args.json ? JSON.stringify(summary, null, 2) : JSON.stringify(summary),
+    );
     return;
   }
 
-  const runtime = await createBackfillRuntime(pluginConfig, args.apiUrl, args.apiToken);
+  const runtime = await createBackfillRuntime(
+    pluginConfig,
+    args.apiUrl,
+    args.apiToken,
+  );
   // Single shared client — hindsight-client takes bankId as a parameter on
   // every call, so there's no reason to cache per-bank clients anymore.
-  const client = new HindsightClient({ baseUrl: runtime.apiUrl, apiKey: runtime.apiToken });
+  const client = new HindsightClient({
+    baseUrl: runtime.apiUrl,
+    apiKey: runtime.apiToken,
+  });
   const bankRuntimes = new Map<string, BankRuntime>();
   let imported = 0;
   let failed = 0;
@@ -498,8 +542,13 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
           bankId: checkpointEntry.bankId,
           touchedEntryKeys: [],
           initialFailedOperations:
-            (await getInitialBankStats(runtime.apiUrl, runtime.apiToken, checkpointEntry.bankId))
-              ?.failed_operations ?? 0,
+            (
+              await getInitialBankStats(
+                runtime.apiUrl,
+                runtime.apiToken,
+                checkpointEntry.bankId,
+              )
+            )?.failed_operations ?? 0,
           missionApplied: false,
         };
         bankRuntimes.set(checkpointEntry.bankId, bankRuntime);
@@ -514,23 +563,33 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
           bankId: entry.bankId,
           touchedEntryKeys: [],
           initialFailedOperations:
-            (await getInitialBankStats(runtime.apiUrl, runtime.apiToken, entry.bankId))
-              ?.failed_operations ?? 0,
+            (
+              await getInitialBankStats(
+                runtime.apiUrl,
+                runtime.apiToken,
+                entry.bankId,
+              )
+            )?.failed_operations ?? 0,
           missionApplied: false,
         };
         bankRuntimes.set(entry.bankId, bankRuntime);
       }
 
       if (!bankRuntime.missionApplied && pluginConfig.bankMission) {
-        await client.createBank(entry.bankId, { reflectMission: pluginConfig.bankMission });
+        await client.createBank(entry.bankId, {
+          reflectMission: pluginConfig.bankMission,
+        });
       }
 
-      if (typeof args.maxPendingOperations === "number" && args.maxPendingOperations >= 0) {
+      if (
+        typeof args.maxPendingOperations === "number" &&
+        args.maxPendingOperations >= 0
+      ) {
         await waitForBankQueue(
           runtime.apiUrl,
           runtime.apiToken,
           entry.bankId,
-          args.maxPendingOperations
+          args.maxPendingOperations,
         );
       }
 
@@ -560,11 +619,15 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         };
         bankRuntime.touchedEntryKeys.push(checkpointKey(entry));
         if (!bankRuntime.missionApplied && pluginConfig.bankMission) {
-          await client.createBank(entry.bankId, { reflectMission: pluginConfig.bankMission });
+          await client.createBank(entry.bankId, {
+            reflectMission: pluginConfig.bankMission,
+          });
           bankRuntime.missionApplied = true;
         }
         saveCheckpoint(args.checkpointPath, checkpoint);
-        console.log(`${entry.agentId}\t${entry.bankId}\t${entry.sessionId}\tenqueued`);
+        console.log(
+          `${entry.agentId}\t${entry.bankId}\t${entry.sessionId}\tenqueued`,
+        );
         imported += 1;
       } catch (error) {
         checkpoint.entries[checkpointKey(entry)] = {
@@ -578,7 +641,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
         saveCheckpoint(args.checkpointPath, checkpoint);
         failed += 1;
         console.error(
-          `${entry.agentId}\t${entry.bankId}\t${entry.sessionId}\tfailed\t${error instanceof Error ? error.message : String(error)}`
+          `${entry.agentId}\t${entry.bankId}\t${entry.sessionId}\tfailed\t${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }
@@ -587,25 +650,25 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       const finalStatsByBank = await waitForBanksToDrain(
         runtime.apiUrl,
         runtime.apiToken,
-        bankRuntimes.keys()
+        bankRuntimes.keys(),
       );
       const touchedEntriesByBank = new Map(
         Array.from(bankRuntimes.entries()).map(([bankId, value]) => [
           bankId,
           value.touchedEntryKeys,
-        ])
+        ]),
       );
       const initialFailedByBank = new Map(
         Array.from(bankRuntimes.entries()).map(([bankId, value]) => [
           bankId,
           value.initialFailedOperations,
-        ])
+        ]),
       );
       const finalization = applyDrainResults(
         checkpoint,
         touchedEntriesByBank,
         finalStatsByBank,
-        initialFailedByBank
+        initialFailedByBank,
       );
       finalized = finalization.completed;
       for (const warning of finalization.warnings) {
@@ -629,7 +692,9 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     bank_strategy: args.bankStrategy,
     checkpoint_path: args.checkpointPath,
   };
-  console.log(args.json ? JSON.stringify(summary, null, 2) : JSON.stringify(summary));
+  console.log(
+    args.json ? JSON.stringify(summary, null, 2) : JSON.stringify(summary),
+  );
 }
 
 function resolveSymlinks(path: string): string {
@@ -656,13 +721,14 @@ function canonicalizeExecutionPath(path: string): string {
 
 export function isDirectExecution(
   entrypoint: string | undefined = process.argv[1],
-  moduleUrl: string = import.meta.url
+  moduleUrl: string = import.meta.url,
 ): boolean {
   if (!entrypoint) {
     return false;
   }
   return (
-    canonicalizeExecutionPath(entrypoint) === canonicalizeExecutionPath(fileURLToPath(moduleUrl))
+    canonicalizeExecutionPath(entrypoint) ===
+    canonicalizeExecutionPath(fileURLToPath(moduleUrl))
   );
 }
 

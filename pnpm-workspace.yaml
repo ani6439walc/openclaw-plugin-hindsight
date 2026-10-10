@@ -1,6 +1,13 @@
 allowBuilds:
-  '@google/genai': true
+  "@google/genai": true
   esbuild: true
   koffi: true
   openclaw: true
   protobufjs: true
+packageExtensions:
+  openclaw:
+    dependencies:
+      "@openclaw/proxyline": "0.3.12"
+minimumReleaseAgeExclude:
+  - openclaw@2026.9.9
+  - "@openclaw/ai@2026.9.9"

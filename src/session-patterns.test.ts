@@ -57,14 +57,21 @@ describe("compileSessionPattern", () => {
 
 describe("matchesSessionPattern", () => {
   it("returns true when any pattern matches", () => {
-    const patterns = compileSessionPatterns(["agent:main:**", "agent:*:cron:**"]);
+    const patterns = compileSessionPatterns([
+      "agent:main:**",
+      "agent:*:cron:**",
+    ]);
     expect(matchesSessionPattern("agent:main:sess-abc", patterns)).toBe(true);
-    expect(matchesSessionPattern("agent:mybot:cron:sess-xyz", patterns)).toBe(true);
+    expect(matchesSessionPattern("agent:mybot:cron:sess-xyz", patterns)).toBe(
+      true,
+    );
   });
 
   it("returns false when no pattern matches", () => {
     const patterns = compileSessionPatterns(["agent:main:**"]);
-    expect(matchesSessionPattern("agent:subagent:sess-abc", patterns)).toBe(false);
+    expect(matchesSessionPattern("agent:subagent:sess-abc", patterns)).toBe(
+      false,
+    );
   });
 
   it("returns false for empty pattern list", () => {
@@ -72,16 +79,32 @@ describe("matchesSessionPattern", () => {
   });
 
   it("lossless-claw ignoreSessionPatterns example", () => {
-    const patterns = compileSessionPatterns(["agent:main:**", "agent:*:cron:**"]);
-    expect(matchesSessionPattern("agent:main:sess-abc123", patterns)).toBe(true);
-    expect(matchesSessionPattern("agent:mybot:cron:sess-123", patterns)).toBe(true);
-    expect(matchesSessionPattern("agent:mybot:subagent:sess-123", patterns)).toBe(false);
+    const patterns = compileSessionPatterns([
+      "agent:main:**",
+      "agent:*:cron:**",
+    ]);
+    expect(matchesSessionPattern("agent:main:sess-abc123", patterns)).toBe(
+      true,
+    );
+    expect(matchesSessionPattern("agent:mybot:cron:sess-123", patterns)).toBe(
+      true,
+    );
+    expect(
+      matchesSessionPattern("agent:mybot:subagent:sess-123", patterns),
+    ).toBe(false);
   });
 
   it("lossless-claw statelessSessionPatterns example", () => {
-    const patterns = compileSessionPatterns(["agent:*:subagent:**", "agent:*:heartbeat:**"]);
-    expect(matchesSessionPattern("agent:main:subagent:sess-abc", patterns)).toBe(true);
-    expect(matchesSessionPattern("agent:main:heartbeat:sess-abc", patterns)).toBe(true);
+    const patterns = compileSessionPatterns([
+      "agent:*:subagent:**",
+      "agent:*:heartbeat:**",
+    ]);
+    expect(
+      matchesSessionPattern("agent:main:subagent:sess-abc", patterns),
+    ).toBe(true);
+    expect(
+      matchesSessionPattern("agent:main:heartbeat:sess-abc", patterns),
+    ).toBe(true);
     expect(matchesSessionPattern("agent:main:sess-abc", patterns)).toBe(false);
   });
 });

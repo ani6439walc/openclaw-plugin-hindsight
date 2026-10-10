@@ -65,11 +65,14 @@ describe("stripMemoryTags", () => {
   it("strips simple hindsight_memories tags", () => {
     const input =
       "User: Hello\n<hindsight_memories>\nRelevant memories here...\n</hindsight_memories>\nAssistant: How can I help?";
-    expect(stripMemoryTags(input)).toBe("User: Hello\n\nAssistant: How can I help?");
+    expect(stripMemoryTags(input)).toBe(
+      "User: Hello\n\nAssistant: How can I help?",
+    );
   });
 
   it("strips relevant_memories tags", () => {
-    const input = "Before\n<relevant_memories>\nSome data\n</relevant_memories>\nAfter";
+    const input =
+      "Before\n<relevant_memories>\nSome data\n</relevant_memories>\nAfter";
     expect(stripMemoryTags(input)).toBe("Before\n\nAfter");
   });
 
@@ -83,7 +86,9 @@ describe("stripMemoryTags", () => {
     const input =
       'User: What is the weather?\n<hindsight_memories>\n[\n  {"memory": "User likes sunny weather"}\n]\n</hindsight_memories>\nAssistant: Let me check';
     const result = stripMemoryTags(input);
-    expect(result).toBe("User: What is the weather?\n\nAssistant: Let me check");
+    expect(result).toBe(
+      "User: What is the weather?\n\nAssistant: Let me check",
+    );
   });
 
   it("preserves content without memory tags", () => {
@@ -126,7 +131,8 @@ describe("stripRuntimeEnvelope", () => {
   });
 
   it("removes standalone opaque runtime ids", () => {
-    const input = "om_x100b6d3512c5ccb0c084ad240a38842\n真实内容\noc_abcdef123456";
+    const input =
+      "om_x100b6d3512c5ccb0c084ad240a38842\n真实内容\noc_abcdef123456";
 
     expect(stripRuntimeEnvelope(input)).toBe("真实内容");
   });
@@ -145,7 +151,7 @@ describe("stripRuntimeEnvelope", () => {
 describe("extractRecallQuery", () => {
   it("returns rawMessage when it is long enough", () => {
     expect(extractRecallQuery("What is my favorite food?", undefined)).toBe(
-      "What is my favorite food?"
+      "What is my favorite food?",
     );
   });
 
@@ -160,7 +166,10 @@ describe("extractRecallQuery", () => {
   });
 
   it("falls back to prompt when rawMessage is absent", () => {
-    const result = extractRecallQuery(undefined, "What programming language do I prefer?");
+    const result = extractRecallQuery(
+      undefined,
+      "What programming language do I prefer?",
+    );
     expect(result).toBe("What programming language do I prefer?");
   });
 
@@ -173,13 +182,14 @@ describe("extractRecallQuery", () => {
   it("falls back to prompt when rawMessage is metadata but prompt has real content", () => {
     const result = extractRecallQuery(
       "Conversation info (untrusted metadata):",
-      "System: You are c0der.\n\nhow many cats do i have?"
+      "System: You are c0der.\n\nhow many cats do i have?",
     );
     expect(result).toBe("how many cats do i have?");
   });
 
   it("strips leading System: lines from prompt", () => {
-    const prompt = "System: You are an agent.\nSystem: Use tools wisely.\n\nWhat is my name?";
+    const prompt =
+      "System: You are an agent.\nSystem: Use tools wisely.\n\nWhat is my name?";
     const result = extractRecallQuery(undefined, prompt);
     expect(result).not.toContain("System:");
     expect(result).toContain("What is my name?");
@@ -192,7 +202,8 @@ describe("extractRecallQuery", () => {
   });
 
   it("strips [from: SenderName] footer from group chat prompts", () => {
-    const prompt = "[Slack Channel #general]\nWhat should I eat for lunch?\n[from: Alice]";
+    const prompt =
+      "[Slack Channel #general]\nWhat should I eat for lunch?\n[from: Alice]";
     const result = extractRecallQuery(undefined, prompt);
     expect(result).not.toContain("[from: Alice]");
     expect(result).toContain("What should I eat for lunch?");
@@ -248,14 +259,17 @@ describe("extractRecallQuery", () => {
   });
 
   it("rejects OpenClaw untrusted metadata messages as rawMessage", () => {
-    const result = extractRecallQuery("Conversation info (untrusted metadata):", undefined);
+    const result = extractRecallQuery(
+      "Conversation info (untrusted metadata):",
+      undefined,
+    );
     expect(result).toBeNull();
   });
 
   it("rejects untrusted metadata even when prompt is also metadata", () => {
     const result = extractRecallQuery(
       "Conversation info (untrusted metadata):",
-      "Conversation info (untrusted metadata): some details"
+      "Conversation info (untrusted metadata): some details",
     );
     expect(result).toBeNull();
   });
@@ -263,7 +277,7 @@ describe("extractRecallQuery", () => {
   it("falls back to prompt when rawMessage is metadata", () => {
     const result = extractRecallQuery(
       "Conversation info (untrusted metadata):",
-      "How many cats do I have?"
+      "How many cats do I have?",
     );
     expect(result).toBe("How many cats do I have?");
   });
@@ -274,7 +288,9 @@ describe("extractRecallQuery", () => {
 // ---------------------------------------------------------------------------
 
 describe("formatMemories", () => {
-  const makeMemoryResult = (overrides: Partial<MemoryResult>): MemoryResult => ({
+  const makeMemoryResult = (
+    overrides: Partial<MemoryResult>,
+  ): MemoryResult => ({
     id: "mem-1",
     text: "default text",
     type: "world",
@@ -307,7 +323,7 @@ describe("formatMemories", () => {
     ];
     const output = formatMemories(memories);
     expect(output).toBe(
-      "- User prefers dark mode [world] (2023-01-01T12:00:00Z)\n\n- User is learning Rust [experience]"
+      "- User prefers dark mode [world] (2023-01-01T12:00:00Z)\n\n- User is learning Rust [experience]",
     );
   });
 
@@ -322,7 +338,7 @@ describe("formatMemories", () => {
       }),
     ];
     expect(formatMemories(memories)).toBe(
-      "- ComfyUI flux tip [world] (2026-07-04T00:00:00Z) [doc:openclaw:agent:main:tg:-1003825475854]"
+      "- ComfyUI flux tip [world] (2026-07-04T00:00:00Z) [doc:openclaw:agent:main:tg:-1003825475854]",
     );
   });
 
@@ -337,7 +353,9 @@ describe("formatMemories", () => {
       }),
     ];
     const output = formatMemories(memories);
-    expect(output).toBe("- User prefers dark mode [observation] (2026-01-01T00:00:00Z)");
+    expect(output).toBe(
+      "- User prefers dark mode [observation] (2026-01-01T00:00:00Z)",
+    );
     expect(output).not.toContain("[doc:");
   });
 
@@ -367,7 +385,7 @@ describe("formatMemories", () => {
       }),
     ];
     expect(formatMemories(memories)).toBe(
-      "- Deployed the new indexer [experience] (2026-01-20T00:00:00Z) [occurred: 2026-01-15T10:30:00Z]"
+      "- Deployed the new indexer [experience] (2026-01-20T00:00:00Z) [occurred: 2026-01-15T10:30:00Z]",
     );
   });
 
@@ -382,20 +400,30 @@ describe("formatMemories", () => {
       }),
     ];
     expect(formatMemories(memories)).toBe(
-      "- Visited Paris [experience] [occurred: 2026-03-01T00:00:00Z → 2026-03-08T00:00:00Z]"
+      "- Visited Paris [experience] [occurred: 2026-03-01T00:00:00Z → 2026-03-08T00:00:00Z]",
     );
   });
 
   it("renders an open-ended window when only one bound is present", () => {
     const startOnly = formatMemories([
-      makeMemoryResult({ text: "Started at Vectorize", occurred_start: "2026-02-01T00:00:00Z" }),
+      makeMemoryResult({
+        text: "Started at Vectorize",
+        occurred_start: "2026-02-01T00:00:00Z",
+      }),
     ]);
-    expect(startOnly).toBe("- Started at Vectorize [world] [occurred from: 2026-02-01T00:00:00Z]");
+    expect(startOnly).toBe(
+      "- Started at Vectorize [world] [occurred from: 2026-02-01T00:00:00Z]",
+    );
 
     const endOnly = formatMemories([
-      makeMemoryResult({ text: "Left the old team", occurred_end: "2026-02-01T00:00:00Z" }),
+      makeMemoryResult({
+        text: "Left the old team",
+        occurred_end: "2026-02-01T00:00:00Z",
+      }),
     ]);
-    expect(endOnly).toBe("- Left the old team [world] [occurred until: 2026-02-01T00:00:00Z]");
+    expect(endOnly).toBe(
+      "- Left the old team [world] [occurred until: 2026-02-01T00:00:00Z]",
+    );
   });
 
   it("orders the occurred window before the [doc:...] marker", () => {
@@ -413,13 +441,17 @@ describe("formatMemories", () => {
     expect(formatMemories(memories)).toBe(
       "- Fixed the LiteLLM port issue [experience] (2026-01-15T00:00:00Z) " +
         "[occurred: 2026-01-14T09:00:00Z → 2026-01-14T11:00:00Z] " +
-        "[doc:openclaw:agent:main:tg:-1003825475854]"
+        "[doc:openclaw:agent:main:tg:-1003825475854]",
     );
   });
 
   it("omits the occurred window when neither bound is present", () => {
     const output = formatMemories([
-      makeMemoryResult({ text: "User likes tea", occurred_start: null, occurred_end: null }),
+      makeMemoryResult({
+        text: "User likes tea",
+        occurred_start: null,
+        occurred_end: null,
+      }),
     ]);
     expect(output).toBe("- User likes tea [world]");
     expect(output).not.toContain("[occurred");
@@ -453,7 +485,12 @@ describe("formatCurrentTimeForRecall", () => {
 describe("normalizeRetainTags", () => {
   it("trims, deduplicates, and preserves order for string arrays", () => {
     expect(
-      normalizeRetainTags([" source_system:openclaw ", "agent:main", "agent:main", ""])
+      normalizeRetainTags([
+        " source_system:openclaw ",
+        "agent:main",
+        "agent:main",
+        "",
+      ]),
     ).toEqual(["source_system:openclaw", "agent:main"]);
   });
 
@@ -464,15 +501,14 @@ describe("normalizeRetainTags", () => {
         { a: 1 } as unknown as string,
         42 as unknown as string,
         null as unknown as string,
-      ])
+      ]),
     ).toEqual(["agent:main"]);
   });
 
   it("accepts comma-separated strings", () => {
-    expect(normalizeRetainTags(" source_system:openclaw, agent:main , agent:main ")).toEqual([
-      "source_system:openclaw",
-      "agent:main",
-    ]);
+    expect(
+      normalizeRetainTags(" source_system:openclaw, agent:main , agent:main "),
+    ).toEqual(["source_system:openclaw", "agent:main"]);
   });
 });
 
@@ -480,8 +516,8 @@ describe("inline retain tag helpers", () => {
   it("extracts retain tags from inline directives", () => {
     expect(
       extractInlineRetainTags(
-        "hello <retain_tags> client:acme, type:decision, client:acme </retain_tags> world"
-      )
+        "hello <retain_tags> client:acme, type:decision, client:acme </retain_tags> world",
+      ),
     ).toEqual(["client:acme", "type:decision"]);
   });
 
@@ -489,7 +525,9 @@ describe("inline retain tag helpers", () => {
     const input =
       "Keep this.\n<hindsight_retain_tags>scope:user</hindsight_retain_tags>\nNot the directive.";
     expect(extractInlineRetainTags(input)).toEqual(["scope:user"]);
-    expect(stripInlineRetainTags(input)).toBe("Keep this.\n\nNot the directive.");
+    expect(stripInlineRetainTags(input)).toBe(
+      "Keep this.\n\nNot the directive.",
+    );
   });
 });
 
@@ -510,7 +548,7 @@ describe("buildRetainRequest", () => {
         retainTags: ["source_system:openclaw", "agent:agentname"],
       },
       1700000000000,
-      { appendSupported: true }
+      { appendSupported: true },
     );
 
     expect(request).toEqual({
@@ -537,7 +575,14 @@ describe("buildRetainRequest", () => {
   });
 
   it("includes the default retain context guidance", () => {
-    const request = buildRetainRequest("hello world", 1, {}, {}, 1700000000000, { turnIndex: 1 });
+    const request = buildRetainRequest(
+      "hello world",
+      1,
+      {},
+      {},
+      1700000000000,
+      { turnIndex: 1 },
+    );
 
     expect(request.context).toBe(DEFAULT_RETAIN_CONTEXT);
   });
@@ -554,7 +599,7 @@ describe("buildRetainRequest", () => {
       },
       {},
       1700000000000,
-      { turnIndex: 1 }
+      { turnIndex: 1 },
     );
 
     expect(request.metadata).toMatchObject({
@@ -577,7 +622,7 @@ describe("buildRetainRequest", () => {
       {},
       { retainContext: "Custom extraction guidance." },
       1700000000000,
-      { turnIndex: 1 }
+      { turnIndex: 1 },
     );
 
     expect(request.context).toBe("Custom extraction guidance.");
@@ -590,7 +635,7 @@ describe("buildRetainRequest", () => {
       {},
       { retainContext: "  Custom extraction guidance. \n" },
       1700000000000,
-      { turnIndex: 1 }
+      { turnIndex: 1 },
     );
 
     expect(request.context).toBe("Custom extraction guidance.");
@@ -607,10 +652,10 @@ describe("buildRetainRequest", () => {
       },
       { retainSource: "openclaw" },
       1700000000000,
-      { turnIndex: 4, appendSupported: false }
+      { turnIndex: 4, appendSupported: false },
     );
     expect(request.documentId).toBe(
-      `openclaw:agent:main:main:turn:${getDocumentIdBootToken()}:000004`
+      `openclaw:agent:main:main:turn:${getDocumentIdBootToken()}:000004`,
     );
     expect(request.updateMode).toBeUndefined();
   });
@@ -626,10 +671,10 @@ describe("buildRetainRequest", () => {
       },
       { retainSource: "openclaw" },
       1700000000000,
-      { turnIndex: 6 }
+      { turnIndex: 6 },
     );
     expect(request.documentId).toBe(
-      `openclaw:agent:main:main:turn:${getDocumentIdBootToken()}:000006`
+      `openclaw:agent:main:main:turn:${getDocumentIdBootToken()}:000006`,
     );
     expect(request.updateMode).toBeUndefined();
   });
@@ -639,16 +684,20 @@ describe("buildRetainRequest", () => {
     // restart. The boot token is what keeps the replayed counter from landing
     // on the previous run's document, which retain would then *replace*.
     const ctx = { agentId: "main", sessionKey: "agent:main:main" };
-    const first = buildRetainRequest("a", 1, ctx, {}, 1700000000000, { turnIndex: 1 });
-    const second = buildRetainRequest("b", 1, ctx, {}, 1700000000000, { turnIndex: 2 });
+    const first = buildRetainRequest("a", 1, ctx, {}, 1700000000000, {
+      turnIndex: 1,
+    });
+    const second = buildRetainRequest("b", 1, ctx, {}, 1700000000000, {
+      turnIndex: 2,
+    });
 
     expect(getDocumentIdBootToken()).toMatch(/^[0-9a-f]{8}$/);
     // Same process → same token, so ids stay comparable within a run.
     expect(first.documentId).toBe(
-      `openclaw:agent:main:main:turn:${getDocumentIdBootToken()}:000001`
+      `openclaw:agent:main:main:turn:${getDocumentIdBootToken()}:000001`,
     );
     expect(second.documentId).toBe(
-      `openclaw:agent:main:main:turn:${getDocumentIdBootToken()}:000002`
+      `openclaw:agent:main:main:turn:${getDocumentIdBootToken()}:000002`,
     );
     expect(first.documentId).not.toBe(second.documentId);
   });
@@ -671,11 +720,11 @@ describe("buildRetainRequest", () => {
         retentionScope: "window",
         turnIndex: 2,
         windowTurns: 2,
-      }
+      },
     );
 
     expect(request.documentId).toBe(
-      `openclaw:agent:agentname:discord:group:123:topic:456:window:${getDocumentIdBootToken()}:000002`
+      `openclaw:agent:agentname:discord:group:123:topic:456:window:${getDocumentIdBootToken()}:000002`,
     );
     expect(request.metadata).toMatchObject({
       source: "openclaw",
@@ -703,14 +752,25 @@ describe("buildRetainRequest", () => {
       {
         turnIndex: 1,
         tags: ["client:acme", "agent:main"],
-      }
+      },
     );
 
-    expect(request.tags).toEqual(["source_system:openclaw", "agent:main", "client:acme"]);
+    expect(request.tags).toEqual([
+      "source_system:openclaw",
+      "agent:main",
+      "client:acme",
+    ]);
   });
 
   it("defaults source metadata to openclaw when unset", () => {
-    const request = buildRetainRequest("hello world", 1, {}, {}, 1700000000000, { turnIndex: 1 });
+    const request = buildRetainRequest(
+      "hello world",
+      1,
+      {},
+      {},
+      1700000000000,
+      { turnIndex: 1 },
+    );
     expect(request.metadata?.source).toBe("openclaw");
     expect(request.tags).toBeUndefined();
   });
@@ -724,7 +784,7 @@ describe("buildRetainRequest", () => {
       },
       {},
       1700000000000,
-      { turnIndex: 1 }
+      { turnIndex: 1 },
     );
 
     expect(request.metadata).toMatchObject({
@@ -738,14 +798,22 @@ describe("buildRetainRequest", () => {
 
 describe("stripInlineTimestampPrefix", () => {
   it("strips weekday/date/time/GMT offset prefixes", () => {
-    expect(stripInlineTimestampPrefix("[Wed 2026-04-15 10:44 GMT+2] hello")).toBe("hello");
-    expect(stripInlineTimestampPrefix("[Mon 2026-01-05 9:07 GMT-5] x")).toBe("x");
-    expect(stripInlineTimestampPrefix("[Sun 2025-12-07 23:59:30 UTC] y")).toBe("y");
+    expect(
+      stripInlineTimestampPrefix("[Wed 2026-04-15 10:44 GMT+2] hello"),
+    ).toBe("hello");
+    expect(stripInlineTimestampPrefix("[Mon 2026-01-05 9:07 GMT-5] x")).toBe(
+      "x",
+    );
+    expect(stripInlineTimestampPrefix("[Sun 2025-12-07 23:59:30 UTC] y")).toBe(
+      "y",
+    );
   });
 
   it("leaves unrelated content untouched", () => {
     expect(stripInlineTimestampPrefix("just text")).toBe("just text");
-    expect(stripInlineTimestampPrefix("[Random] not a timestamp")).toBe("[Random] not a timestamp");
+    expect(stripInlineTimestampPrefix("[Random] not a timestamp")).toBe(
+      "[Random] not a timestamp",
+    );
   });
 });
 
@@ -764,7 +832,12 @@ describe("prepareRetentionTranscript", () => {
       {
         role: "user",
         timestamp: 1776246240000,
-        content: [{ type: "text", text: "[Wed 2026-04-15 10:44 GMT+2] just pick some news" }],
+        content: [
+          {
+            type: "text",
+            text: "[Wed 2026-04-15 10:44 GMT+2] just pick some news",
+          },
+        ],
       },
       {
         role: "assistant",
@@ -802,7 +875,11 @@ describe("prepareRetentionTranscript", () => {
     expect(result).not.toBeNull();
     const parsed = JSON.parse(result!.transcript);
     expect(parsed).toEqual([
-      { role: "user", content: "hi there", timestamp: "2026-04-15T09:44:00.000Z" },
+      {
+        role: "user",
+        content: "hi there",
+        timestamp: "2026-04-15T09:44:00.000Z",
+      },
     ]);
   });
 
@@ -842,7 +919,9 @@ describe("prepareRetentionTranscript", () => {
   });
 
   it("handles array content", () => {
-    const messages = [{ role: "user", content: [{ type: "text", text: "Hello array" }] }];
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "Hello array" }] },
+    ];
     const result = prepareRetentionTranscript(messages, baseConfig);
     expect(result?.transcript).toContain("Hello array");
   });
@@ -902,8 +981,12 @@ describe("prepareRetentionTranscript", () => {
     ]);
     expect(result!.transcript).not.toContain("Conversation info");
     expect(result!.transcript).not.toContain("message_id");
-    expect(result!.transcript).not.toContain("om_x100b6d3512c5ccb0c084ad240a38842");
-    expect(result!.transcript).not.toContain("ou_cb923a19782fe748cd9fff99454eee31");
+    expect(result!.transcript).not.toContain(
+      "om_x100b6d3512c5ccb0c084ad240a38842",
+    );
+    expect(result!.transcript).not.toContain(
+      "ou_cb923a19782fe748cd9fff99454eee31",
+    );
   });
 
   it("strips Feishu runtime headers from retained text-only content", () => {
@@ -992,13 +1075,21 @@ describe("prepareRetentionTranscript", () => {
 
   it("retains assistant tool_use blocks and folds toolResult into a user tool_result block", () => {
     const messages = [
-      { role: "user", content: [{ type: "text", text: "What is the weather?" }] },
+      {
+        role: "user",
+        content: [{ type: "text", text: "What is the weather?" }],
+      },
       {
         role: "assistant",
         content: [
           { type: "thinking", thinking: "deliberation — should be stripped" },
           { type: "text", text: "Let me check." },
-          { type: "toolCall", id: "call_abc", name: "get_weather", arguments: { city: "SF" } },
+          {
+            type: "toolCall",
+            id: "call_abc",
+            name: "get_weather",
+            arguments: { city: "SF" },
+          },
         ],
       },
       {
@@ -1007,25 +1098,45 @@ describe("prepareRetentionTranscript", () => {
         toolName: "get_weather",
         content: [{ type: "text", text: "sunny, 62F" }],
       },
-      { role: "assistant", content: [{ type: "text", text: "It's sunny, 62F." }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "It's sunny, 62F." }],
+      },
     ];
     const result = prepareRetentionTranscript(messages, baseConfig);
     expect(result).not.toBeNull();
     const parsed = JSON.parse(result!.transcript);
     expect(parsed).toEqual([
-      { role: "user", content: [{ type: "text", text: "What is the weather?" }] },
+      {
+        role: "user",
+        content: [{ type: "text", text: "What is the weather?" }],
+      },
       {
         role: "assistant",
         content: [
           { type: "text", text: "Let me check." },
-          { type: "tool_use", name: "get_weather", input: { city: "SF" }, id: "call_abc" },
+          {
+            type: "tool_use",
+            name: "get_weather",
+            input: { city: "SF" },
+            id: "call_abc",
+          },
         ],
       },
       {
         role: "user",
-        content: [{ type: "tool_result", content: "sunny, 62F", tool_use_id: "call_abc" }],
+        content: [
+          {
+            type: "tool_result",
+            content: "sunny, 62F",
+            tool_use_id: "call_abc",
+          },
+        ],
       },
-      { role: "assistant", content: [{ type: "text", text: "It's sunny, 62F." }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "It's sunny, 62F." }],
+      },
     ]);
   });
 
@@ -1035,7 +1146,12 @@ describe("prepareRetentionTranscript", () => {
       {
         role: "assistant",
         content: [
-          { type: "toolCall", id: "c1", name: "mcp__hindsight__recall", arguments: { query: "x" } },
+          {
+            type: "toolCall",
+            id: "c1",
+            name: "mcp__hindsight__recall",
+            arguments: { query: "x" },
+          },
           {
             type: "toolCall",
             id: "c2",
@@ -1050,12 +1166,16 @@ describe("prepareRetentionTranscript", () => {
     const parsed = JSON.parse(result!.transcript);
     const assistantBlocks = parsed[1].content;
     expect(
-      assistantBlocks.some((b: any) => b.type === "tool_use" && b.name === "mcp__hindsight__recall")
+      assistantBlocks.some(
+        (b: any) =>
+          b.type === "tool_use" && b.name === "mcp__hindsight__recall",
+      ),
     ).toBe(false);
     expect(
       assistantBlocks.some(
-        (b: any) => b.type === "tool_use" && b.name === "mcp__other__send_message"
-      )
+        (b: any) =>
+          b.type === "tool_use" && b.name === "mcp__other__send_message",
+      ),
     ).toBe(true);
   });
 
@@ -1063,13 +1183,21 @@ describe("prepareRetentionTranscript", () => {
     const big = "x".repeat(3000);
     const messages = [
       { role: "user", content: "run tool" },
-      { role: "assistant", content: [{ type: "toolCall", id: "c1", name: "noop", arguments: {} }] },
-      { role: "toolResult", toolCallId: "c1", content: [{ type: "text", text: big }] },
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "c1", name: "noop", arguments: {} }],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "c1",
+        content: [{ type: "text", text: big }],
+      },
     ];
     const result = prepareRetentionTranscript(messages, baseConfig);
     const parsed = JSON.parse(result!.transcript);
-    const toolResult = parsed.find((m: any) => m.content.some((b: any) => b.type === "tool_result"))
-      .content[0];
+    const toolResult = parsed.find((m: any) =>
+      m.content.some((b: any) => b.type === "tool_result"),
+    ).content[0];
     expect(toolResult.content.endsWith("... (truncated)")).toBe(true);
     expect(toolResult.content.length).toBe(2000 + "... (truncated)".length);
   });
@@ -1082,14 +1210,21 @@ describe("prepareRetentionTranscript", () => {
     ];
     const result = prepareRetentionTranscript(messages, config);
     expect(result).not.toBeNull();
-    expect(result!.transcript).toContain("[role: user]\nHello there\n[user:end]");
-    expect(result!.transcript).toContain("[role: assistant]\nHi back\n[assistant:end]");
+    expect(result!.transcript).toContain(
+      "[role: user]\nHello there\n[user:end]",
+    );
+    expect(result!.transcript).toContain(
+      "[role: assistant]\nHi back\n[assistant:end]",
+    );
   });
 
   it("reports accurate messageCount excluding empty messages", () => {
     const messages = [
       { role: "user", content: "Real message" },
-      { role: "assistant", content: "<hindsight_memories>\nonly tags\n</hindsight_memories>" },
+      {
+        role: "assistant",
+        content: "<hindsight_memories>\nonly tags\n</hindsight_memories>",
+      },
       { role: "assistant", content: "Actual response" },
     ];
     const result = prepareRetentionTranscript(messages, baseConfig);
@@ -1104,7 +1239,9 @@ describe("prepareRetentionTranscript", () => {
     const result = prepareRetentionTranscript(messages, config);
     expect(result).not.toBeNull();
     const parsed = JSON.parse(result!.transcript);
-    expect(parsed).toEqual([{ role: "user", content: "What's MIN-123 status?" }]);
+    expect(parsed).toEqual([
+      { role: "user", content: "What's MIN-123 status?" },
+    ]);
     expect(result!.transcript).not.toContain("[context]");
     expect(result!.transcript).not.toContain("sender:");
     expect(result!.transcript).not.toContain("channel:");
@@ -1168,7 +1305,10 @@ describe("sliceLastTurnsByUserBoundary", () => {
   it("skips synthetic user messages that contain only tool_result blocks", () => {
     const messages = [
       { role: "user", content: [{ type: "text", text: "Real user input 1" }] },
-      { role: "assistant", content: [{ type: "text", text: "Assistant reply 1" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Assistant reply 1" }],
+      },
       {
         role: "user",
         content: [{ type: "tool_result", content: "Tool output for call 1" }],
@@ -1177,9 +1317,15 @@ describe("sliceLastTurnsByUserBoundary", () => {
         role: "user",
         content: [{ type: "tool_result", content: "Tool output for call 2" }],
       },
-      { role: "assistant", content: [{ type: "text", text: "Assistant after tools" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Assistant after tools" }],
+      },
       { role: "user", content: [{ type: "text", text: "Real user input 2" }] },
-      { role: "assistant", content: [{ type: "text", text: "Assistant reply 2" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Assistant reply 2" }],
+      },
     ];
     // 3 user turns requested, but only 2 have real text content.
     // Should fall back to returning all messages.
@@ -1190,14 +1336,23 @@ describe("sliceLastTurnsByUserBoundary", () => {
   it("uses real user turns when tool_result synthetic messages are present", () => {
     const messages = [
       { role: "user", content: [{ type: "text", text: "Real user input 1" }] },
-      { role: "assistant", content: [{ type: "text", text: "Assistant reply 1" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Assistant reply 1" }],
+      },
       {
         role: "user",
         content: [{ type: "tool_result", content: "Tool output 1" }],
       },
-      { role: "assistant", content: [{ type: "text", text: "Assistant after tool 1" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Assistant after tool 1" }],
+      },
       { role: "user", content: [{ type: "text", text: "Real user input 2" }] },
-      { role: "assistant", content: [{ type: "text", text: "Assistant reply 2" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Assistant reply 2" }],
+      },
     ];
     // 2 real user turns. Should start at message 0 (first real user).
     const result = sliceLastTurnsByUserBoundary(messages, 2);
@@ -1214,7 +1369,7 @@ describe("composeRecallQuery", () => {
     const query = composeRecallQuery(
       "What is my preference?",
       [{ role: "user", content: "Old message" }],
-      1
+      1,
     );
     expect(query).toBe("What is my preference?");
   });
@@ -1231,7 +1386,9 @@ describe("composeRecallQuery", () => {
     expect(query).toContain("user: I like dark mode.");
     expect(query).toContain("assistant: Got it, dark mode noted.");
     // latest message should appear after prior context
-    expect(query.indexOf("Prior context:")).toBeLessThan(query.indexOf("What theme do I prefer?"));
+    expect(query.indexOf("Prior context:")).toBeLessThan(
+      query.indexOf("What theme do I prefer?"),
+    );
   });
 
   it("strips Feishu runtime ids from prior recall context", () => {
@@ -1261,7 +1418,9 @@ describe("composeRecallQuery", () => {
       { role: "user", content: "What theme do I prefer?" },
     ];
 
-    const query = composeRecallQuery("What theme do I prefer?", messages, 2, ["user"]);
+    const query = composeRecallQuery("What theme do I prefer?", messages, 2, [
+      "user",
+    ]);
     expect(query).toBe("What theme do I prefer?");
   });
 
@@ -1327,7 +1486,11 @@ describe("session identity helpers", () => {
   });
 
   it("parses Control UI Dashboard sessions", () => {
-    expect(parseSessionKey("agent:main:dashboard:12345678-90ab-cdef-1234-567890abcdef")).toEqual({
+    expect(
+      parseSessionKey(
+        "agent:main:dashboard:12345678-90ab-cdef-1234-567890abcdef",
+      ),
+    ).toEqual({
       agentId: "main",
     });
   });
@@ -1371,7 +1534,7 @@ describe("session identity helpers", () => {
         agentId: "main",
         sessionKey: "agent:main:telegram:direct:12345",
       },
-      baseConfig
+      baseConfig,
     );
 
     expect(bankId).toBe("main::direct%3A12345::12345");
@@ -1412,7 +1575,10 @@ describe("session identity helpers", () => {
   });
 
   it("marks missing sender as retryable", () => {
-    const result = getIdentitySkipReason({ messageProvider: "telegram", channelId: "group:12345" });
+    const result = getIdentitySkipReason({
+      messageProvider: "telegram",
+      channelId: "group:12345",
+    });
     expect(result.reason).toEqual({
       kind: "retryable",
       detail: "missing stable sender identity",
@@ -1436,7 +1602,7 @@ describe("session identity helpers", () => {
   it("allows agent:*:main sessions through when agent banking is enabled", () => {
     const result = getIdentitySkipReason(
       { sessionKey: "agent:project-alpha:main" },
-      { dynamicBankGranularity: ["agent"] }
+      { dynamicBankGranularity: ["agent"] },
     );
     expect(result.reason).toBeUndefined();
     expect(result.resolvedCtx?.agentId).toBe("project-alpha");
@@ -1446,7 +1612,7 @@ describe("session identity helpers", () => {
   it("allows provider main when agent banking is enabled", () => {
     const result = getIdentitySkipReason(
       { sessionKey: "agent:main:main" },
-      { dynamicBankGranularity: ["agent"] }
+      { dynamicBankGranularity: ["agent"] },
     );
     expect(result.reason).toBeUndefined();
   });
@@ -1454,7 +1620,7 @@ describe("session identity helpers", () => {
   it("still skips cron/heartbeat/subagent providers when agent banking is enabled", () => {
     const result = getIdentitySkipReason(
       { sessionKey: "agent:main:cron:nightly:cleanup" },
-      { dynamicBankGranularity: ["agent"] }
+      { dynamicBankGranularity: ["agent"] },
     );
     expect(result.reason).toEqual({
       kind: "final",
@@ -1464,8 +1630,12 @@ describe("session identity helpers", () => {
 
   it("synthesizes sender identity for anonymous CLI sessions when agent banking is enabled", () => {
     const result = getIdentitySkipReason(
-      { agentId: "project-beta", messageProvider: "cli", senderId: "anonymous" },
-      { dynamicBankGranularity: ["agent"] }
+      {
+        agentId: "project-beta",
+        messageProvider: "cli",
+        senderId: "anonymous",
+      },
+      { dynamicBankGranularity: ["agent"] },
     );
     expect(result.reason).toBeUndefined();
     expect(result.resolvedCtx?.senderId).toBe("agent-user:project-beta");
@@ -1474,7 +1644,7 @@ describe("session identity helpers", () => {
   it("allows agent:*:main sessions through when a static bankId is configured", () => {
     const result = getIdentitySkipReason(
       { sessionKey: "agent:main:main" },
-      { dynamicBankId: false, bankId: "shared-bank" }
+      { dynamicBankId: false, bankId: "shared-bank" },
     );
     expect(result.reason).toBeUndefined();
     expect(result.resolvedCtx?.senderId).toBe("agent-user:main");
@@ -1483,7 +1653,9 @@ describe("session identity helpers", () => {
   it("allows Dashboard sessions through when a static bankId is configured", () => {
     const result = resolveAndCacheIdentity({
       sessionKey: "agent:main:dashboard:12345678-90ab-cdef-1234-567890abcdef",
-      ctx: { sessionKey: "agent:main:dashboard:12345678-90ab-cdef-1234-567890abcdef" },
+      ctx: {
+        sessionKey: "agent:main:dashboard:12345678-90ab-cdef-1234-567890abcdef",
+      },
       dispatchChannel: "webchat",
       pluginConfig: { dynamicBankId: false, bankId: "shared-bank" },
     });
@@ -1501,7 +1673,9 @@ describe("session identity helpers", () => {
   it("does not synthesize a Dashboard sender when agent and static banking are disabled", () => {
     const result = resolveAndCacheIdentity({
       sessionKey: "agent:main:dashboard:12345678-90ab-cdef-1234-567890abcdee",
-      ctx: { sessionKey: "agent:main:dashboard:12345678-90ab-cdef-1234-567890abcdee" },
+      ctx: {
+        sessionKey: "agent:main:dashboard:12345678-90ab-cdef-1234-567890abcdee",
+      },
       dispatchChannel: "webchat",
       pluginConfig: { dynamicBankGranularity: ["channel", "user"] },
     });
@@ -1515,7 +1689,7 @@ describe("session identity helpers", () => {
   it("allows agent:*:main when dynamicBankId is false but bankId is missing (default granularity includes 'agent')", () => {
     const result = getIdentitySkipReason(
       { sessionKey: "agent:main:main" },
-      { dynamicBankId: false }
+      { dynamicBankId: false },
     );
     // Default agentBanking is true (default granularity includes 'agent'),
     // so the session is allowed even without an explicit bankId.
@@ -1525,7 +1699,7 @@ describe("session identity helpers", () => {
   it("does not broaden the carve-out when granularity excludes 'agent' and bankId is missing", () => {
     const result = getIdentitySkipReason(
       { sessionKey: "agent:main:main" },
-      { dynamicBankId: false, dynamicBankGranularity: ["channel", "user"] }
+      { dynamicBankId: false, dynamicBankGranularity: ["channel", "user"] },
     );
     expect(result.reason).toEqual({
       kind: "final",
@@ -1542,7 +1716,7 @@ describe("session identity helpers", () => {
   it("skips agent:*:main sessions when granularity explicitly excludes 'agent'", () => {
     const result = getIdentitySkipReason(
       { sessionKey: "agent:main:main" },
-      { dynamicBankGranularity: ["channel", "user"] }
+      { dynamicBankGranularity: ["channel", "user"] },
     );
     expect(result.reason).toEqual({
       kind: "final",
@@ -1551,11 +1725,17 @@ describe("session identity helpers", () => {
   });
 
   it("detects ephemeral operational text with or without transcript wrappers", () => {
-    expect(isEphemeralOperationalText("A new session was started via /reset.")).toBe(true);
     expect(
-      isEphemeralOperationalText("[role: user]\nA new session was started via /new.\n[user:end]")
+      isEphemeralOperationalText("A new session was started via /reset."),
     ).toBe(true);
-    expect(isEphemeralOperationalText("Tell me what I said about dark mode.")).toBe(false);
+    expect(
+      isEphemeralOperationalText(
+        "[role: user]\nA new session was started via /new.\n[user:end]",
+      ),
+    ).toBe(true);
+    expect(
+      isEphemeralOperationalText("Tell me what I said about dark mode."),
+    ).toBe(false);
   });
 });
 
@@ -1675,14 +1855,18 @@ describe("resolveAndCacheIdentity dispatch-surface gate (#1541)", () => {
 
     expect(skipReason).toEqual({
       kind: "final",
-      detail: "dispatch surface webchat does not match session provider telegram",
+      detail:
+        "dispatch surface webchat does not match session provider telegram",
     });
   });
 
   it("still skips operational sessions for a mapped agent", () => {
     // The map widens allowCliSessions; cron/heartbeat/subagent and temp:
     // sessions return before that is consulted and must stay skipped.
-    for (const sessionKey of ["agent:inbound:cron:job-1", "temp:inbound:scratch"]) {
+    for (const sessionKey of [
+      "agent:inbound:cron:job-1",
+      "temp:inbound:scratch",
+    ]) {
       const { skipReason } = resolveAndCacheIdentity({
         sessionKey,
         ctx: { sessionKey, agentId: "inbound" },
@@ -1750,7 +1934,9 @@ describe("meetsMinimumVersion", () => {
 
 describe("append capability helpers", () => {
   it("supports append for legacy version payloads without a features block", () => {
-    const capabilities = parseHindsightApiCapabilities({ api_version: "0.8.4" });
+    const capabilities = parseHindsightApiCapabilities({
+      api_version: "0.8.4",
+    });
 
     expect(capabilities).toEqual({ version: "0.8.4", storeDocumentText: true });
     expect(supportsAppendFromCapabilities(capabilities)).toBe(true);
@@ -1772,16 +1958,16 @@ describe("append capability helpers", () => {
         parseHindsightApiCapabilities({
           api_version: "0.8.4",
           features: { store_document_text: false },
-        })
-      )
+        }),
+      ),
     ).toBe(false);
     expect(
       supportsAppendFromCapabilities(
         parseHindsightApiCapabilities({
           api_version: "0.8.4",
           features: {},
-        })
-      )
+        }),
+      ),
     ).toBe(false);
   });
 
@@ -1795,7 +1981,11 @@ describe("append capability helpers", () => {
   });
 
   it("returns null for malformed version payloads", () => {
-    expect(parseHindsightApiCapabilities({ features: { store_document_text: true } })).toBeNull();
+    expect(
+      parseHindsightApiCapabilities({
+        features: { store_document_text: true },
+      }),
+    ).toBeNull();
     expect(parseHindsightApiCapabilities(null)).toBeNull();
   });
 });
@@ -1804,18 +1994,18 @@ describe("async retain operation id capability", () => {
   it("requires API 0.8.6 or newer", () => {
     expect(
       supportsAsyncRetainOperationIdFromCapabilities(
-        parseHindsightApiCapabilities({ api_version: "0.8.5" })
-      )
+        parseHindsightApiCapabilities({ api_version: "0.8.5" }),
+      ),
     ).toBe(false);
     expect(
       supportsAsyncRetainOperationIdFromCapabilities(
-        parseHindsightApiCapabilities({ api_version: "0.8.6" })
-      )
+        parseHindsightApiCapabilities({ api_version: "0.8.6" }),
+      ),
     ).toBe(true);
     expect(
       supportsAsyncRetainOperationIdFromCapabilities(
-        parseHindsightApiCapabilities({ api_version: "0.9.0" })
-      )
+        parseHindsightApiCapabilities({ api_version: "0.9.0" }),
+      ),
     ).toBe(true);
     expect(supportsAsyncRetainOperationIdFromCapabilities(null)).toBe(false);
   });
@@ -1832,8 +2022,8 @@ describe("async retain operation id capability", () => {
     ]) {
       expect(
         supportsAsyncRetainOperationIdFromCapabilities(
-          parseHindsightApiCapabilities({ api_version: version })
-        )
+          parseHindsightApiCapabilities({ api_version: version }),
+        ),
       ).toBe(false);
     }
   });
@@ -1842,20 +2032,26 @@ describe("async retain operation id capability", () => {
     const originalFetch = globalThis.fetch;
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ api_version: "0.8.6" }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ api_version: "0.8.5" }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ api_version: "0.8.6" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ api_version: "0.8.5" }),
+      })
       .mockRejectedValueOnce(new Error("version endpoint unavailable"));
     globalThis.fetch = fetchMock as typeof fetch;
     try {
-      await expect(refreshAsyncRetainOperationIdCapability("https://example.test")).resolves.toBe(
-        "supported"
-      );
-      await expect(refreshAsyncRetainOperationIdCapability("https://example.test")).resolves.toBe(
-        "unsupported"
-      );
-      await expect(refreshAsyncRetainOperationIdCapability("https://example.test")).resolves.toBe(
-        "unknown"
-      );
+      await expect(
+        refreshAsyncRetainOperationIdCapability("https://example.test"),
+      ).resolves.toBe("supported");
+      await expect(
+        refreshAsyncRetainOperationIdCapability("https://example.test"),
+      ).resolves.toBe("unsupported");
+      await expect(
+        refreshAsyncRetainOperationIdCapability("https://example.test"),
+      ).resolves.toBe("unknown");
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -1865,8 +2061,12 @@ describe("async retain operation id capability", () => {
     const first = createAsyncRetainOperationId();
     const second = createAsyncRetainOperationId();
 
-    expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-    expect(second).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(first).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(second).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
     expect(second).not.toBe(first);
   });
 });
@@ -1877,50 +2077,67 @@ describe("async retain operation id capability", () => {
 
 function makeApi(rawConfig: Record<string, unknown>): MoltbotPluginAPI {
   return {
-    config: { plugins: { entries: { "hindsight": { config: rawConfig } } } },
+    config: { plugins: { entries: { hindsight: { config: rawConfig } } } },
     registerService: () => undefined,
     on: () => undefined,
-    logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
+    logger: {
+      info: () => undefined,
+      warn: () => undefined,
+      error: () => undefined,
+    },
   } as unknown as MoltbotPluginAPI;
 }
 
 describe("getPluginConfig — retainQueue whitelist (#1443)", () => {
   it("passes retainQueuePath through when set to a non-empty string", () => {
-    const cfg = getPluginConfig(makeApi({ retainQueuePath: "/custom/path/retain.jsonl" }));
+    const cfg = getPluginConfig(
+      makeApi({ retainQueuePath: "/custom/path/retain.jsonl" }),
+    );
     expect(cfg.retainQueuePath).toBe("/custom/path/retain.jsonl");
   });
 
   it("drops retainQueuePath when blank or non-string", () => {
-    expect(getPluginConfig(makeApi({ retainQueuePath: "   " })).retainQueuePath).toBeUndefined();
-    expect(getPluginConfig(makeApi({ retainQueuePath: 42 })).retainQueuePath).toBeUndefined();
+    expect(
+      getPluginConfig(makeApi({ retainQueuePath: "   " })).retainQueuePath,
+    ).toBeUndefined();
+    expect(
+      getPluginConfig(makeApi({ retainQueuePath: 42 })).retainQueuePath,
+    ).toBeUndefined();
     expect(getPluginConfig(makeApi({})).retainQueuePath).toBeUndefined();
   });
 
   it("passes retainQueueMaxAgeMs through (including the sentinel -1)", () => {
-    expect(getPluginConfig(makeApi({ retainQueueMaxAgeMs: 86_400_000 })).retainQueueMaxAgeMs).toBe(
-      86_400_000
-    );
-    expect(getPluginConfig(makeApi({ retainQueueMaxAgeMs: -1 })).retainQueueMaxAgeMs).toBe(-1);
+    expect(
+      getPluginConfig(makeApi({ retainQueueMaxAgeMs: 86_400_000 }))
+        .retainQueueMaxAgeMs,
+    ).toBe(86_400_000);
+    expect(
+      getPluginConfig(makeApi({ retainQueueMaxAgeMs: -1 })).retainQueueMaxAgeMs,
+    ).toBe(-1);
   });
 
   it("drops retainQueueMaxAgeMs when not a number", () => {
     expect(
-      getPluginConfig(makeApi({ retainQueueMaxAgeMs: "86400000" })).retainQueueMaxAgeMs
+      getPluginConfig(makeApi({ retainQueueMaxAgeMs: "86400000" }))
+        .retainQueueMaxAgeMs,
     ).toBeUndefined();
   });
 
   it("passes retainQueueFlushIntervalMs through when positive", () => {
     expect(
-      getPluginConfig(makeApi({ retainQueueFlushIntervalMs: 30_000 })).retainQueueFlushIntervalMs
+      getPluginConfig(makeApi({ retainQueueFlushIntervalMs: 30_000 }))
+        .retainQueueFlushIntervalMs,
     ).toBe(30_000);
   });
 
   it("drops retainQueueFlushIntervalMs when zero, negative, or non-number", () => {
     expect(
-      getPluginConfig(makeApi({ retainQueueFlushIntervalMs: 0 })).retainQueueFlushIntervalMs
+      getPluginConfig(makeApi({ retainQueueFlushIntervalMs: 0 }))
+        .retainQueueFlushIntervalMs,
     ).toBeUndefined();
     expect(
-      getPluginConfig(makeApi({ retainQueueFlushIntervalMs: -5 })).retainQueueFlushIntervalMs
+      getPluginConfig(makeApi({ retainQueueFlushIntervalMs: -5 }))
+        .retainQueueFlushIntervalMs,
     ).toBeUndefined();
   });
 });
@@ -1937,33 +2154,50 @@ describe("getPluginConfig — enableKnowledgeTools whitelist", () => {
 
   it("defaults to false when not set or set to a non-boolean truthy value", () => {
     expect(getPluginConfig(makeApi({})).enableKnowledgeTools).toBe(false);
-    expect(getPluginConfig(makeApi({ enableKnowledgeTools: false })).enableKnowledgeTools).toBe(
-      false
-    );
-    expect(getPluginConfig(makeApi({ enableKnowledgeTools: "true" })).enableKnowledgeTools).toBe(
-      false
-    );
-    expect(getPluginConfig(makeApi({ enableKnowledgeTools: 1 })).enableKnowledgeTools).toBe(false);
+    expect(
+      getPluginConfig(makeApi({ enableKnowledgeTools: false }))
+        .enableKnowledgeTools,
+    ).toBe(false);
+    expect(
+      getPluginConfig(makeApi({ enableKnowledgeTools: "true" }))
+        .enableKnowledgeTools,
+    ).toBe(false);
+    expect(
+      getPluginConfig(makeApi({ enableKnowledgeTools: 1 }))
+        .enableKnowledgeTools,
+    ).toBe(false);
   });
 });
 
 describe("getPluginConfig — preferObservations (#2977)", () => {
   it("passes preferObservations=true through when set", () => {
-    expect(getPluginConfig(makeApi({ preferObservations: true })).preferObservations).toBe(true);
+    expect(
+      getPluginConfig(makeApi({ preferObservations: true })).preferObservations,
+    ).toBe(true);
   });
 
   it("defaults to false when not set or set to a non-boolean truthy value", () => {
     expect(getPluginConfig(makeApi({})).preferObservations).toBe(false);
-    expect(getPluginConfig(makeApi({ preferObservations: false })).preferObservations).toBe(false);
-    expect(getPluginConfig(makeApi({ preferObservations: "true" })).preferObservations).toBe(false);
-    expect(getPluginConfig(makeApi({ preferObservations: 1 })).preferObservations).toBe(false);
+    expect(
+      getPluginConfig(makeApi({ preferObservations: false }))
+        .preferObservations,
+    ).toBe(false);
+    expect(
+      getPluginConfig(makeApi({ preferObservations: "true" }))
+        .preferObservations,
+    ).toBe(false);
+    expect(
+      getPluginConfig(makeApi({ preferObservations: 1 })).preferObservations,
+    ).toBe(false);
   });
 });
 
 describe("recallMinScores (#4143)", () => {
   it("passes configured score floors through plugin config", () => {
     const recallMinScores = { semantic: 0.2, reranker: 0.3, final: null };
-    expect(getPluginConfig(makeApi({ recallMinScores })).recallMinScores).toEqual(recallMinScores);
+    expect(
+      getPluginConfig(makeApi({ recallMinScores })).recallMinScores,
+    ).toEqual(recallMinScores);
   });
 
   it("passes score floors to the Hindsight client", async () => {
@@ -1993,7 +2227,7 @@ describe("formatHookPerf (#1406)", () => {
       results: 3,
     });
     expect(line).toBe(
-      "perf: before_prompt_build hook_total=4200ms recall_main=3800ms source=fresh results=3"
+      "perf: before_prompt_build hook_total=4200ms recall_main=3800ms source=fresh results=3",
     );
   });
 
@@ -2005,7 +2239,7 @@ describe("formatHookPerf (#1406)", () => {
       messages: 4,
     });
     expect(line).toBe(
-      "perf: agent_end hook_total=1200ms retain=1100ms outcome=ok bank=main messages=4"
+      "perf: agent_end hook_total=1200ms retain=1100ms outcome=ok bank=main messages=4",
     );
   });
 
@@ -2015,7 +2249,9 @@ describe("formatHookPerf (#1406)", () => {
       source: "skipped",
       results: 0,
     });
-    expect(line).toBe("perf: before_prompt_build hook_total=50ms source=skipped results=0");
+    expect(line).toBe(
+      "perf: before_prompt_build hook_total=50ms source=skipped results=0",
+    );
   });
 });
 
@@ -2025,10 +2261,18 @@ describe("getPluginConfig — debugPerfTiming flag (#1406)", () => {
   });
 
   it("only accepts strict true (not truthy)", () => {
-    expect(getPluginConfig(makeApi({ debugPerfTiming: true })).debugPerfTiming).toBe(true);
-    expect(getPluginConfig(makeApi({ debugPerfTiming: false })).debugPerfTiming).toBe(false);
-    expect(getPluginConfig(makeApi({ debugPerfTiming: "yes" })).debugPerfTiming).toBe(false);
-    expect(getPluginConfig(makeApi({ debugPerfTiming: 1 })).debugPerfTiming).toBe(false);
+    expect(
+      getPluginConfig(makeApi({ debugPerfTiming: true })).debugPerfTiming,
+    ).toBe(true);
+    expect(
+      getPluginConfig(makeApi({ debugPerfTiming: false })).debugPerfTiming,
+    ).toBe(false);
+    expect(
+      getPluginConfig(makeApi({ debugPerfTiming: "yes" })).debugPerfTiming,
+    ).toBe(false);
+    expect(
+      getPluginConfig(makeApi({ debugPerfTiming: 1 })).debugPerfTiming,
+    ).toBe(false);
   });
 });
 
@@ -2036,15 +2280,20 @@ describe("getPluginConfig — recall injection position", () => {
   it("defaults missing or invalid values to user context", () => {
     expect(getPluginConfig(makeApi({})).recallInjectionPosition).toBe("user");
     expect(
-      getPluginConfig(makeApi({ recallInjectionPosition: "invalid" })).recallInjectionPosition
+      getPluginConfig(makeApi({ recallInjectionPosition: "invalid" }))
+        .recallInjectionPosition,
     ).toBe("user");
   });
 
-  it.each(["prepend", "append", "user"] as const)("preserves an explicit %s value", (position) => {
-    expect(
-      getPluginConfig(makeApi({ recallInjectionPosition: position })).recallInjectionPosition
-    ).toBe(position);
-  });
+  it.each(["prepend", "append", "user"] as const)(
+    "preserves an explicit %s value",
+    (position) => {
+      expect(
+        getPluginConfig(makeApi({ recallInjectionPosition: position }))
+          .recallInjectionPosition,
+      ).toBe(position);
+    },
+  );
 });
 
 describe("getPluginConfig — mission semantics (#1270, #1353)", () => {
@@ -2059,7 +2308,9 @@ describe("getPluginConfig — mission semantics (#1270, #1353)", () => {
   });
 
   it("passes through an explicit bankMission verbatim", () => {
-    const cfg = getPluginConfig(makeApi({ bankMission: "You are Cooper, the orchestrator." }));
+    const cfg = getPluginConfig(
+      makeApi({ bankMission: "You are Cooper, the orchestrator." }),
+    );
     expect(cfg.bankMission).toBe("You are Cooper, the orchestrator.");
   });
 
@@ -2068,14 +2319,16 @@ describe("getPluginConfig — mission semantics (#1270, #1353)", () => {
       makeApi({
         retainMission: "Extract architectural decisions only.",
         observationsMission: "Synthesise stable preferences.",
-      })
+      }),
     );
     expect(cfg.retainMission).toBe("Extract architectural decisions only.");
     expect(cfg.observationsMission).toBe("Synthesise stable preferences.");
   });
 
   it("treats empty-string retainMission and observationsMission as unset", () => {
-    const cfg = getPluginConfig(makeApi({ retainMission: "", observationsMission: "" }));
+    const cfg = getPluginConfig(
+      makeApi({ retainMission: "", observationsMission: "" }),
+    );
     expect(cfg.retainMission).toBeUndefined();
     expect(cfg.observationsMission).toBeUndefined();
   });
@@ -2102,7 +2355,7 @@ describe("getPluginConfig — dynamic bank defaults", () => {
         dispositionLiteralism: 2,
         dispositionEmpathy: 5,
         entityLabels: labels,
-      })
+      }),
     );
     expect(cfg.retainExtractionMode).toBe("verbose");
     expect(cfg.enableObservations).toBe(true);
@@ -2116,7 +2369,7 @@ describe("getPluginConfig — dynamic bank defaults", () => {
       makeApi({
         retainExtractionMode: "not-a-mode",
         dispositionSkepticism: 9,
-      })
+      }),
     );
     expect(cfg.retainExtractionMode).toBeUndefined();
     expect(cfg.dispositionSkepticism).toBeUndefined();
@@ -2130,28 +2383,32 @@ describe("getPluginConfig — retainContext", () => {
   });
 
   it("passes through an explicit non-empty retainContext", () => {
-    const cfg = getPluginConfig(makeApi({ retainContext: "Treat IDs as routing metadata." }));
+    const cfg = getPluginConfig(
+      makeApi({ retainContext: "Treat IDs as routing metadata." }),
+    );
     expect(cfg.retainContext).toBe("Treat IDs as routing metadata.");
   });
 
   it("trims an explicit retainContext", () => {
-    const cfg = getPluginConfig(makeApi({ retainContext: " Treat IDs as routing metadata. \n" }));
+    const cfg = getPluginConfig(
+      makeApi({ retainContext: " Treat IDs as routing metadata. \n" }),
+    );
     expect(cfg.retainContext).toBe("Treat IDs as routing metadata.");
   });
 
   it("falls back to the default when retainContext is blank or non-string", () => {
     expect(getPluginConfig(makeApi({ retainContext: "" })).retainContext).toBe(
-      DEFAULT_RETAIN_CONTEXT
+      DEFAULT_RETAIN_CONTEXT,
     );
     expect(getPluginConfig(makeApi({ retainContext: 42 })).retainContext).toBe(
-      DEFAULT_RETAIN_CONTEXT
+      DEFAULT_RETAIN_CONTEXT,
     );
   });
 
   it("keeps the plugin manifest default in sync with the code default", () => {
-    expect(openclawManifest.configSchema?.properties?.retainContext?.default).toBe(
-      DEFAULT_RETAIN_CONTEXT
-    );
+    expect(
+      openclawManifest.configSchema?.properties?.retainContext?.default,
+    ).toBe(DEFAULT_RETAIN_CONTEXT);
   });
 });
 
@@ -2172,7 +2429,7 @@ describe("resolveBankIdForKnowledgeTools", () => {
         agentId: "nemoclaw",
         sessionKey: `agent:nemoclaw:msteams:direct:${userId}`,
       },
-      userScopedConfig
+      userScopedConfig,
     );
 
     expect(resolution.identityError).toBeUndefined();
@@ -2188,7 +2445,7 @@ describe("resolveBankIdForKnowledgeTools", () => {
         agentId: "nemoclaw",
         sessionKey: "agent:nemoclaw:msteams:group:19:general@thread.tacv2",
       },
-      userScopedConfig
+      userScopedConfig,
     );
 
     expect(resolution.identityError).toMatch(/missing stable sender identity/);
@@ -2200,7 +2457,7 @@ describe("resolveBankIdForKnowledgeTools", () => {
   it("uses static bankId when dynamicBankId is false", () => {
     const resolution = resolveBankIdForKnowledgeTools(
       { sessionKey: "agent:nemoclaw:main" },
-      { dynamicBankId: false, bankId: "shared-team-memory" }
+      { dynamicBankId: false, bankId: "shared-team-memory" },
     );
 
     expect(resolution.identityError).toBeUndefined();
@@ -2216,7 +2473,7 @@ describe("resolveBankIdForKnowledgeTools", () => {
         agentId: "inbound",
         sessionKey: "agent:inbound:msteams:group:19:general@thread.tacv2",
       },
-      { ...userScopedConfig, agentBankMap: { inbound: "ps-technology" } }
+      { ...userScopedConfig, agentBankMap: { inbound: "ps-technology" } },
     );
 
     expect(resolution.identityError).toBeUndefined();
@@ -2229,7 +2486,7 @@ describe("resolveBankIdForKnowledgeTools", () => {
         agentId: "nemoclaw",
         sessionKey: "agent:nemoclaw:msteams:group:19:general@thread.tacv2",
       },
-      { ...userScopedConfig, agentBankMap: { inbound: "ps-technology" } }
+      { ...userScopedConfig, agentBankMap: { inbound: "ps-technology" } },
     );
 
     expect(resolution.identityError).toMatch(/missing stable sender identity/);
@@ -2243,7 +2500,12 @@ describe("resolveBankIdForKnowledgeTools", () => {
 
 describe("normalizeAgentBankMap", () => {
   it("keeps valid entries and trims the bank name", () => {
-    expect(normalizeAgentBankMap({ inbound: " ps-technology ", limpieza: "ps-limpieza" })).toEqual({
+    expect(
+      normalizeAgentBankMap({
+        inbound: " ps-technology ",
+        limpieza: "ps-limpieza",
+      }),
+    ).toEqual({
       inbound: "ps-technology",
       limpieza: "ps-limpieza",
     });
@@ -2251,7 +2513,9 @@ describe("normalizeAgentBankMap", () => {
 
   it("drops entries whose bank is blank or not a string", () => {
     // A blank value would otherwise route that agent to a bank named "".
-    expect(normalizeAgentBankMap({ a: "bank-a", b: "   ", c: 42, d: null })).toEqual({
+    expect(
+      normalizeAgentBankMap({ a: "bank-a", b: "   ", c: 42, d: null }),
+    ).toEqual({
       a: "bank-a",
     });
   });
@@ -2265,7 +2529,9 @@ describe("normalizeAgentBankMap", () => {
     expect(normalizeAgentBankMap(undefined)).toBeUndefined();
     expect(normalizeAgentBankMap(null)).toBeUndefined();
     expect(normalizeAgentBankMap("inbound=ps-technology")).toBeUndefined();
-    expect(normalizeAgentBankMap([["inbound", "ps-technology"]])).toBeUndefined();
+    expect(
+      normalizeAgentBankMap([["inbound", "ps-technology"]]),
+    ).toBeUndefined();
   });
 
   it("trims the agent id too, so a padded key is not silently inert", () => {
@@ -2285,7 +2551,12 @@ describe("senderPrefixPattern display-name stripping (#3070)", () => {
   // The pattern is module-global; leaking it would change unrelated tests.
   afterEach(() => configureSenderPrefixStripping(undefined));
 
-  const cases: Array<{ name: string; pattern?: string; input: string; expected: string }> = [
+  const cases: Array<{
+    name: string;
+    pattern?: string;
+    input: string;
+    expected: string;
+  }> = [
     {
       name: "strips a literal configured display name",
       pattern: "UserName",
@@ -2301,13 +2572,15 @@ describe("senderPrefixPattern display-name stripping (#3070)", () => {
     {
       name: "strips the display name left after the runtime id line",
       pattern: "UserName",
-      input: "[message_id: om_x100b6d3512c5ccb0c084ad240a38842]\nUserName: today weather?",
+      input:
+        "[message_id: om_x100b6d3512c5ccb0c084ad240a38842]\nUserName: today weather?",
       expected: "today weather?",
     },
     {
       name: "still strips opaque sender ids while enabled",
       pattern: "UserName",
-      input: "[message_id: om_x100b6d3512c5ccb0c084ad240a38842]\nou_cb923a19: 真实内容",
+      input:
+        "[message_id: om_x100b6d3512c5ccb0c084ad240a38842]\nou_cb923a19: 真实内容",
       expected: "真实内容",
     },
     {
@@ -2358,15 +2631,18 @@ describe("senderPrefixPattern display-name stripping (#3070)", () => {
 
   it("strips the display name out of the recall query", () => {
     configureSenderPrefixStripping("UserName");
-    expect(extractRecallQuery("UserName: today weather?", undefined)).toBe("today weather?");
+    expect(extractRecallQuery("UserName: today weather?", undefined)).toBe(
+      "today weather?",
+    );
     configureSenderPrefixStripping(undefined);
     expect(extractRecallQuery("UserName: today weather?", undefined)).toBe(
-      "UserName: today weather?"
+      "UserName: today weather?",
     );
   });
 
   it("strips the display name out of the reported #3070 Feishu DM shape", () => {
-    const raw = "[message_id: om_x100b6d3512c5ccb0c084ad240a38842]\nUserName: today weather?";
+    const raw =
+      "[message_id: om_x100b6d3512c5ccb0c084ad240a38842]\nUserName: today weather?";
 
     configureSenderPrefixStripping("UserName");
     expect(extractRecallQuery(raw, undefined)).toBe("today weather?");
@@ -2398,17 +2674,27 @@ describe("senderPrefixPattern display-name stripping (#3070)", () => {
 
   it("is armed by getPluginConfig and ignores blank or invalid values", () => {
     expect(
-      getPluginConfig(makeApi({ senderPrefixPattern: "  UserName  " })).senderPrefixPattern
+      getPluginConfig(makeApi({ senderPrefixPattern: "  UserName  " }))
+        .senderPrefixPattern,
     ).toBe("UserName");
-    expect(stripRuntimeEnvelope("UserName: today weather?")).toBe("today weather?");
+    expect(stripRuntimeEnvelope("UserName: today weather?")).toBe(
+      "today weather?",
+    );
 
     expect(
-      getPluginConfig(makeApi({ senderPrefixPattern: "   " })).senderPrefixPattern
+      getPluginConfig(makeApi({ senderPrefixPattern: "   " }))
+        .senderPrefixPattern,
     ).toBeUndefined();
-    expect(stripRuntimeEnvelope("UserName: today weather?")).toBe("UserName: today weather?");
+    expect(stripRuntimeEnvelope("UserName: today weather?")).toBe(
+      "UserName: today weather?",
+    );
 
-    expect(() => getPluginConfig(makeApi({ senderPrefixPattern: "([" }))).not.toThrow();
-    expect(stripRuntimeEnvelope("UserName: today weather?")).toBe("UserName: today weather?");
+    expect(() =>
+      getPluginConfig(makeApi({ senderPrefixPattern: "([" })),
+    ).not.toThrow();
+    expect(stripRuntimeEnvelope("UserName: today weather?")).toBe(
+      "UserName: today weather?",
+    );
 
     expect(getPluginConfig(makeApi({})).senderPrefixPattern).toBeUndefined();
   });
@@ -2466,7 +2752,9 @@ describe("inbound metadata blocks (marker and legacy forms)", () => {
   });
 
   it("leaves ordinary user text untouched", () => {
-    expect(stripMetadataEnvelopes("just a normal message")).toBe("just a normal message");
+    expect(stripMetadataEnvelopes("just a normal message")).toBe(
+      "just a normal message",
+    );
   });
 
   it("rejects a marker-only prompt as a recall query", () => {
@@ -2476,7 +2764,9 @@ describe("inbound metadata blocks (marker and legacy forms)", () => {
 
   it("recovers the user query from a marker-wrapped prompt", () => {
     const text = `${markerBlock("Conversation info:", '{"sender_id":"ou_xyz"}')}\n\nwhat did I say about postgres?`;
-    expect(extractRecallQuery(undefined, text)).toBe("what did I say about postgres?");
+    expect(extractRecallQuery(undefined, text)).toBe(
+      "what did I say about postgres?",
+    );
   });
 });
 
@@ -2491,11 +2781,15 @@ describe("sessionEndMessagesFromTranscript", () => {
     const dir = mkdtempSync(join(tmpdir(), "hs-session-end-"));
     madeDirs.push(dir);
     const file = join(dir, "sess-1.jsonl");
-    writeFileSync(file, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+    writeFileSync(
+      file,
+      lines.map((line) => JSON.stringify(line)).join("\n") + "\n",
+    );
     return file;
   };
   afterEach(() => {
-    for (const dir of madeDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+    for (const dir of madeDirs.splice(0))
+      rmSync(dir, { recursive: true, force: true });
   });
 
   const sessionEndEvent = (sessionFile?: string) => ({
@@ -2506,17 +2800,26 @@ describe("sessionEndMessagesFromTranscript", () => {
     durationMs: 12_000,
     reason: "reset",
     ...(sessionFile === undefined ? {} : { sessionFile }),
-    context: { sessionId: "sess-1", sessionKey: "agent:main:telegram:group:1", agentId: "main" },
+    context: {
+      sessionId: "sess-1",
+      sessionKey: "agent:main:telegram:group:1",
+      agentId: "main",
+    },
   });
 
   it("reads the transcript the event points at", () => {
     const file = writeTranscript([
       { type: "session", id: "sess-1", timestamp: "2026-09-12T20:00:00Z" },
       { type: "message", message: { role: "user", content: "where were we" } },
-      { type: "message", message: { role: "assistant", content: "the tail of the session" } },
+      {
+        type: "message",
+        message: { role: "assistant", content: "the tail of the session" },
+      },
     ]);
 
-    const messages = sessionEndMessagesFromTranscript(sessionEndEvent(file)) as Array<{
+    const messages = sessionEndMessagesFromTranscript(
+      sessionEndEvent(file),
+    ) as Array<{
       role: string;
       content: unknown;
     }>;
@@ -2533,7 +2836,9 @@ describe("sessionEndMessagesFromTranscript", () => {
   it("returns undefined for an unreadable transcript instead of throwing", () => {
     const file = writeTranscript([{ type: "session", id: "sess-1" }]);
     rmSync(file);
-    expect(sessionEndMessagesFromTranscript(sessionEndEvent(file))).toBeUndefined();
+    expect(
+      sessionEndMessagesFromTranscript(sessionEndEvent(file)),
+    ).toBeUndefined();
   });
 
   it("returns undefined when the transcript holds no messages", () => {
@@ -2542,17 +2847,27 @@ describe("sessionEndMessagesFromTranscript", () => {
       { type: "session", id: "sess-1" },
       { type: "message", message: { role: "user", content: "   " } },
     ]);
-    expect(sessionEndMessagesFromTranscript(sessionEndEvent(file))).toBeUndefined();
+    expect(
+      sessionEndMessagesFromTranscript(sessionEndEvent(file)),
+    ).toBeUndefined();
   });
 
   it("passes the agent id from the event context to the reader", () => {
     const seen: string[] = [];
     const read = ((filePath: string, agentId: string) => {
       seen.push(agentId);
-      return { filePath, agentId, sessionId: "s", messages: [{ role: "user", content: "hi" }] };
+      return {
+        filePath,
+        agentId,
+        sessionId: "s",
+        messages: [{ role: "user", content: "hi" }],
+      };
     }) as never;
 
-    sessionEndMessagesFromTranscript(sessionEndEvent("/tmp/whatever.jsonl"), read);
+    sessionEndMessagesFromTranscript(
+      sessionEndEvent("/tmp/whatever.jsonl"),
+      read,
+    );
 
     expect(seen).toEqual(["main"]);
   });
@@ -2562,23 +2877,38 @@ describe("knowledgeToolDetails — Code Mode structured result (#4308)", () => {
   it("parses the SDK's JSON text payload into details", () => {
     const result = {
       content: [
-        { type: "text", text: JSON.stringify({ results: [{ id: "m1", text: "fact" }] }, null, 2) },
+        {
+          type: "text",
+          text: JSON.stringify(
+            { results: [{ id: "m1", text: "fact" }] },
+            null,
+            2,
+          ),
+        },
       ],
     };
-    expect(knowledgeToolDetails(result)).toEqual({ results: [{ id: "m1", text: "fact" }] });
+    expect(knowledgeToolDetails(result)).toEqual({
+      results: [{ id: "m1", text: "fact" }],
+    });
   });
 
   it("wraps a non-object payload so the guest still receives it", () => {
-    expect(knowledgeToolDetails({ content: [{ type: "text", text: "[1,2]" }] })).toEqual({
+    expect(
+      knowledgeToolDetails({ content: [{ type: "text", text: "[1,2]" }] }),
+    ).toEqual({
       result: [1, 2],
     });
-    expect(knowledgeToolDetails({ content: [{ type: "text", text: '"ok"' }] })).toEqual({
+    expect(
+      knowledgeToolDetails({ content: [{ type: "text", text: '"ok"' }] }),
+    ).toEqual({
       result: "ok",
     });
   });
 
   it("falls back to an empty object for missing or unparseable text", () => {
-    expect(knowledgeToolDetails({ content: [{ type: "text", text: "not json" }] })).toEqual({});
+    expect(
+      knowledgeToolDetails({ content: [{ type: "text", text: "not json" }] }),
+    ).toEqual({});
     expect(knowledgeToolDetails({ content: [] })).toEqual({});
     expect(knowledgeToolDetails({})).toEqual({});
     expect(knowledgeToolDetails(undefined)).toEqual({});

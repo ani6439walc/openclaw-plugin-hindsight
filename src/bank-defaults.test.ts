@@ -21,13 +21,19 @@ describe("hasConfiguredBankDefaults", () => {
   });
 
   it("returns true when any bank default or mission is configured", () => {
-    expect(hasConfiguredBankDefaults({ retainMission: "Extract facts." })).toBe(true);
-    expect(hasConfiguredBankDefaults({ retainExtractionMode: "verbose" })).toBe(true);
-    expect(hasConfiguredBankDefaults({ enableAutoConsolidation: false })).toBe(true);
+    expect(hasConfiguredBankDefaults({ retainMission: "Extract facts." })).toBe(
+      true,
+    );
+    expect(hasConfiguredBankDefaults({ retainExtractionMode: "verbose" })).toBe(
+      true,
+    );
+    expect(hasConfiguredBankDefaults({ enableAutoConsolidation: false })).toBe(
+      true,
+    );
     expect(
       hasConfiguredBankDefaults({
         entityLabels: [{ name: "person", description: "A human" }],
-      })
+      }),
     ).toBe(true);
   });
 });
@@ -83,7 +89,9 @@ describe("buildBankConfigApiUpdates", () => {
   });
 
   it("omits unset config-api fields", () => {
-    expect(buildBankConfigApiUpdates({ retainExtractionMode: "verbose" })).toEqual({});
+    expect(
+      buildBankConfigApiUpdates({ retainExtractionMode: "verbose" }),
+    ).toEqual({});
   });
 });
 
@@ -112,7 +120,9 @@ describe("normalizers", () => {
     expect(normalizeEntityLabels({ attributes: [] })).toBeUndefined();
     // A plain keyed object is not the server's wrapper shape — it would be
     // silently ignored server-side, so it's dropped rather than sent.
-    expect(normalizeEntityLabels({ person: { description: "Human" } })).toBeUndefined();
+    expect(
+      normalizeEntityLabels({ person: { description: "Human" } }),
+    ).toBeUndefined();
   });
 });
 
@@ -132,7 +142,12 @@ describe("applyConfiguredBankDefaults", () => {
     const createBank = vi.fn();
     const client = { createBank } as unknown as HindsightClient;
 
-    await applyConfiguredBankDefaults(client, "agent-slack-U123", {}, clientOpts);
+    await applyConfiguredBankDefaults(
+      client,
+      "agent-slack-U123",
+      {},
+      clientOpts,
+    );
 
     expect(createBank).not.toHaveBeenCalled();
     expect(global.fetch).not.toHaveBeenCalled();
@@ -141,7 +156,9 @@ describe("applyConfiguredBankDefaults", () => {
   it("sends createBank and config patch for a derived dynamic bank", async () => {
     const createBank = vi.fn().mockResolvedValue({});
     const client = { createBank } as unknown as HindsightClient;
-    vi.mocked(global.fetch).mockResolvedValue(new Response("{}", { status: 200 }));
+    vi.mocked(global.fetch).mockResolvedValue(
+      new Response("{}", { status: 200 }),
+    );
 
     const config: PluginConfig = {
       retainExtractionMode: "verbose",
@@ -151,7 +168,12 @@ describe("applyConfiguredBankDefaults", () => {
       retainMission: "Keep architectural decisions.",
     };
 
-    await applyConfiguredBankDefaults(client, "agent-slack-U123", config, clientOpts);
+    await applyConfiguredBankDefaults(
+      client,
+      "agent-slack-U123",
+      config,
+      clientOpts,
+    );
 
     expect(createBank).toHaveBeenCalledWith("agent-slack-U123", {
       retainMission: "Keep architectural decisions.",
@@ -168,7 +190,7 @@ describe("applyConfiguredBankDefaults", () => {
             enable_auto_consolidation: true,
           },
         }),
-      })
+      }),
     );
   });
 
@@ -180,7 +202,7 @@ describe("applyConfiguredBankDefaults", () => {
       client,
       "openclaw",
       { bankMission: "Reflect.", retainMission: "Retain." },
-      clientOpts
+      clientOpts,
     );
 
     expect(createBank).toHaveBeenCalledWith("openclaw", {
@@ -204,9 +226,11 @@ describe("patchBankConfig", () => {
   });
 
   it("throws on non-OK responses", async () => {
-    vi.mocked(global.fetch).mockResolvedValue(new Response("nope", { status: 422 }));
-    await expect(patchBankConfig("bank-a", { entity_labels: ["x"] }, clientOpts)).rejects.toThrow(
-      /patchBankConfig failed \(422\)/
+    vi.mocked(global.fetch).mockResolvedValue(
+      new Response("nope", { status: 422 }),
     );
+    await expect(
+      patchBankConfig("bank-a", { entity_labels: ["x"] }, clientOpts),
+    ).rejects.toThrow(/patchBankConfig failed \(422\)/);
   });
 });

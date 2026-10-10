@@ -1,10 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { RetainQueue } from "./retain-queue.js";
-import registerPlugin, { type AsyncRetainOperationIdCapability } from "./index.js";
-import type { MoltbotPluginAPI, PluginHookAgentContext, ServiceConfig } from "./types.js";
+import registerPlugin, {
+  type AsyncRetainOperationIdCapability,
+} from "./index.js";
+import type {
+  MoltbotPluginAPI,
+  PluginHookAgentContext,
+  ServiceConfig,
+} from "./types.js";
 
 const tempDirs: string[] = [];
 
@@ -19,12 +31,18 @@ afterEach(() => {
 function makeApi(
   queuePath: string,
   flushIntervalMs: number,
-  extraConfig: Record<string, unknown> = {}
+  extraConfig: Record<string, unknown> = {},
 ): {
   api: MoltbotPluginAPI;
   service: () => ServiceConfig;
-  agentEnd: () => (event: unknown, ctx?: PluginHookAgentContext) => Promise<void>;
-  sessionEnd: () => (event: unknown, ctx?: PluginHookAgentContext) => Promise<void>;
+  agentEnd: () => (
+    event: unknown,
+    ctx?: PluginHookAgentContext,
+  ) => Promise<void>;
+  sessionEnd: () => (
+    event: unknown,
+    ctx?: PluginHookAgentContext,
+  ) => Promise<void>;
 } {
   let registeredService: ServiceConfig | undefined;
   let agentEndHandler:
@@ -37,7 +55,7 @@ function makeApi(
     config: {
       plugins: {
         entries: {
-          "hindsight": {
+          hindsight: {
             config: {
               hindsightApiUrl: "https://hindsight.test",
               retainQueuePath: queuePath,
@@ -87,7 +105,8 @@ function makeApi(
     },
   };
 }
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 interface FakeServer {
   /** Bodies of every retain POST that reached the server. */
@@ -105,7 +124,9 @@ interface FakeServer {
   releaseDeferredVersion: () => void;
 }
 
-function installFakeServer(initial: AsyncRetainOperationIdCapability): FakeServer {
+function installFakeServer(
+  initial: AsyncRetainOperationIdCapability,
+): FakeServer {
   let capability = initial;
   let versionRequests = 0;
   let retainFailures = 0;
@@ -115,55 +136,62 @@ function installFakeServer(initial: AsyncRetainOperationIdCapability): FakeServe
   const retainBodies: Array<Record<string, unknown>> = [];
   const retainUrls: string[] = [];
 
-  const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-    const request = input instanceof Request ? input : new Request(input, init);
-    if (request.url.endsWith("/health")) {
-      return new Response(JSON.stringify({ status: "ok" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    }
-    if (request.url.endsWith("/version")) {
-      versionRequests++;
-      if (deferNext) {
-        deferNext = false;
-        notifyDeferredStarted?.();
-        return await new Promise<Response>((resolve) => {
-          resolveDeferred = resolve;
+  const fetchMock = vi.fn(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      if (request.url.endsWith("/health")) {
+        return new Response(JSON.stringify({ status: "ok" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
         });
       }
-      if (capability === "unknown") throw new Error("version probe unavailable");
-      return new Response(
-        JSON.stringify({
-          api_version: capability === "supported" ? "0.8.6" : "0.8.5",
-          features: { store_document_text: true },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } }
-      );
-    }
-    if (request.method === "POST" && request.url.includes("/memories")) {
-      const body = JSON.parse(await request.clone().text()) as Record<string, unknown>;
-      retainBodies.push(body);
-      retainUrls.push(request.url);
-      // Record the body first: a lost acknowledgement is a request the server
-      // *did* process, which is the case operation_id has to cover.
-      if (retainFailures > 0) {
-        retainFailures--;
-        throw new Error("connection reset before acknowledgement");
+      if (request.url.endsWith("/version")) {
+        versionRequests++;
+        if (deferNext) {
+          deferNext = false;
+          notifyDeferredStarted?.();
+          return await new Promise<Response>((resolve) => {
+            resolveDeferred = resolve;
+          });
+        }
+        if (capability === "unknown")
+          throw new Error("version probe unavailable");
+        return new Response(
+          JSON.stringify({
+            api_version: capability === "supported" ? "0.8.6" : "0.8.5",
+            features: { store_document_text: true },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
       }
-      return new Response(
-        JSON.stringify({
-          success: true,
-          bank_id: "integration-bank",
-          items_count: 1,
-          async: true,
-          operation_id: body.operation_id,
-        }),
-        { status: 200, headers: { "content-type": "application/json" } }
-      );
-    }
-    throw new Error(`unexpected request: ${request.method} ${request.url}`);
-  });
+      if (request.method === "POST" && request.url.includes("/memories")) {
+        const body = JSON.parse(await request.clone().text()) as Record<
+          string,
+          unknown
+        >;
+        retainBodies.push(body);
+        retainUrls.push(request.url);
+        // Record the body first: a lost acknowledgement is a request the server
+        // *did* process, which is the case operation_id has to cover.
+        if (retainFailures > 0) {
+          retainFailures--;
+          throw new Error("connection reset before acknowledgement");
+        }
+        return new Response(
+          JSON.stringify({
+            success: true,
+            bank_id: "integration-bank",
+            items_count: 1,
+            async: true,
+            operation_id: body.operation_id,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`unexpected request: ${request.method} ${request.url}`);
+    },
+  );
   vi.stubGlobal("fetch", fetchMock);
 
   return {
@@ -189,8 +217,8 @@ function installFakeServer(initial: AsyncRetainOperationIdCapability): FakeServe
             api_version: "0.8.6",
             features: { store_document_text: true },
           }),
-          { status: 200, headers: { "content-type": "application/json" } }
-        )
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
       );
     },
   };
@@ -236,7 +264,10 @@ describe("retain queue idempotent replay", () => {
     await firstService.start();
 
     server.failRetains(1);
-    const { event, ctx } = conversation("My favourite colour is ultramarine.", "integration");
+    const { event, ctx } = conversation(
+      "My favourite colour is ultramarine.",
+      "integration",
+    );
     await first.agentEnd()(event, ctx);
 
     // The server saw the request and processed it; only the acknowledgement was
@@ -272,7 +303,10 @@ describe("retain queue idempotent replay", () => {
     await service.start();
 
     server.failRetains(1);
-    const { event, ctx } = conversation("Remember this while /version is down.", "integration");
+    const { event, ctx } = conversation(
+      "Remember this while /version is down.",
+      "integration",
+    );
     await api.agentEnd()(event, ctx);
 
     // The durable outbox waits for capability detection before any send.
@@ -353,7 +387,10 @@ describe("session_end flushes the un-retained tail (#4341)", () => {
   // wiring, which is where #1726's flush died: the hook fired, the guard above it
   // saw a payload with no `messages`, and the tail was dropped in silence. Only an
   // end-to-end retain proves the forced flush now reaches the server.
-  function writeTranscript(sessionId: string, turns: Array<[string, string]>): string {
+  function writeTranscript(
+    sessionId: string,
+    turns: Array<[string, string]>,
+  ): string {
     const dir = mkdtempSync(join(tmpdir(), "hindsight-session-end-"));
     tempDirs.push(dir);
     const file = join(dir, `${sessionId}.jsonl`);
@@ -364,7 +401,11 @@ describe("session_end flushes the un-retained tail (#4341)", () => {
         { type: "message", message: { role: "assistant", content: assistant } },
       ]),
     ];
-    writeFileSync(file, lines.map((line) => JSON.stringify(line)).join("\n") + "\n", "utf8");
+    writeFileSync(
+      file,
+      lines.map((line) => JSON.stringify(line)).join("\n") + "\n",
+      "utf8",
+    );
     return file;
   }
 
@@ -374,7 +415,10 @@ describe("session_end flushes the un-retained tail (#4341)", () => {
 
     // retainEveryNTurns: 3 — two turns sit below the cadence boundary, so nothing
     // has been retained when the session ends.
-    const api = makeApi(queuePath, 1_000, { retainEveryNTurns: 3, retainOverlapTurns: 1 });
+    const api = makeApi(queuePath, 1_000, {
+      retainEveryNTurns: 3,
+      retainOverlapTurns: 1,
+    });
     const service = api.service();
     await service.start();
 
@@ -395,7 +439,7 @@ describe("session_end flushes the un-retained tail (#4341)", () => {
           { role: "assistant", content: "Noted." },
         ],
       },
-      ctx
+      ctx,
     );
     await api.agentEnd()(
       {
@@ -405,7 +449,7 @@ describe("session_end flushes the un-retained tail (#4341)", () => {
           { role: "assistant", content: "Understood." },
         ],
       },
-      ctx
+      ctx,
     );
     expect(server.retainBodies).toHaveLength(0);
 
@@ -425,11 +469,13 @@ describe("session_end flushes the un-retained tail (#4341)", () => {
         sessionFile,
         context: { sessionId: "sess-1", sessionKey, agentId: "main" },
       },
-      ctx
+      ctx,
     );
 
     await vi.waitFor(() => expect(server.retainBodies).toHaveLength(1));
-    expect(JSON.stringify(server.retainBodies[0])).toContain("The tail nobody retained.");
+    expect(JSON.stringify(server.retainBodies[0])).toContain(
+      "The tail nobody retained.",
+    );
     await service.stop();
   });
 
@@ -437,7 +483,10 @@ describe("session_end flushes the un-retained tail (#4341)", () => {
     const queuePath = makeQueuePath();
     const server = installFakeServer("supported");
 
-    const api = makeApi(queuePath, 1_000, { retainEveryNTurns: 3, retainOverlapTurns: 1 });
+    const api = makeApi(queuePath, 1_000, {
+      retainEveryNTurns: 3,
+      retainOverlapTurns: 1,
+    });
     const service = api.service();
     await service.start();
 
@@ -458,7 +507,7 @@ describe("session_end flushes the un-retained tail (#4341)", () => {
           { role: "assistant", content: "Noted." },
         ],
       },
-      ctx
+      ctx,
     );
 
     await api.sessionEnd()(
@@ -470,7 +519,7 @@ describe("session_end flushes the un-retained tail (#4341)", () => {
         sessionFile: join(tmpdir(), "hindsight-missing", "sess-2.jsonl"),
         context: { sessionId: "sess-2", sessionKey, agentId: "main" },
       },
-      ctx
+      ctx,
     );
 
     expect(server.retainBodies).toHaveLength(0);
@@ -511,9 +560,18 @@ describe("agentBankMap routes retains to the mapped bank", () => {
     const service = api.service();
     await service.start();
 
-    await api.agentEnd()(oneTurn("Postgres 16 in production."), ctxFor("inbound", "s1"));
-    await api.agentEnd()(oneTurn("Campaigns ship on Tuesday."), ctxFor("outbound", "s2"));
-    await api.agentEnd()(oneTurn("This agent is not in the map."), ctxFor("stranger", "s3"));
+    await api.agentEnd()(
+      oneTurn("Postgres 16 in production."),
+      ctxFor("inbound", "s1"),
+    );
+    await api.agentEnd()(
+      oneTurn("Campaigns ship on Tuesday."),
+      ctxFor("outbound", "s2"),
+    );
+    await api.agentEnd()(
+      oneTurn("This agent is not in the map."),
+      ctxFor("stranger", "s3"),
+    );
 
     expect(server.retainUrls).toHaveLength(3);
     // Two different agents, one named bank.
@@ -537,7 +595,10 @@ describe("agentBankMap routes retains to the mapped bank", () => {
     const service = api.service();
     await service.start();
 
-    await api.agentEnd()(oneTurn("The crew starts at 06:00."), ctxFor("limpieza", "s1"));
+    await api.agentEnd()(
+      oneTurn("The crew starts at 06:00."),
+      ctxFor("limpieza", "s1"),
+    );
     await api.agentEnd()(oneTurn("Anything else."), ctxFor("other", "s2"));
 
     expect(server.retainUrls).toHaveLength(2);

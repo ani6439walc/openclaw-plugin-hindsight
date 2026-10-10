@@ -26,37 +26,55 @@ describe("deriveBankId", () => {
   });
 
   it('should support ["agent", "user"] isolation', () => {
-    const config: PluginConfig = { ...baseConfig, dynamicBankGranularity: ["agent", "user"] };
+    const config: PluginConfig = {
+      ...baseConfig,
+      dynamicBankGranularity: ["agent", "user"],
+    };
     const bankId = deriveBankId(ctx, config);
     expect(bankId).toBe("agent-123::user-789");
   });
 
   it('should support ["user"] isolation', () => {
-    const config: PluginConfig = { ...baseConfig, dynamicBankGranularity: ["user"] };
+    const config: PluginConfig = {
+      ...baseConfig,
+      dynamicBankGranularity: ["user"],
+    };
     const bankId = deriveBankId(ctx, config);
     expect(bankId).toBe("user-789");
   });
 
   it('should support ["agent"] isolation', () => {
-    const config: PluginConfig = { ...baseConfig, dynamicBankGranularity: ["agent"] };
+    const config: PluginConfig = {
+      ...baseConfig,
+      dynamicBankGranularity: ["agent"],
+    };
     const bankId = deriveBankId(ctx, config);
     expect(bankId).toBe("agent-123");
   });
 
   it('should support ["channel"] isolation', () => {
-    const config: PluginConfig = { ...baseConfig, dynamicBankGranularity: ["channel"] };
+    const config: PluginConfig = {
+      ...baseConfig,
+      dynamicBankGranularity: ["channel"],
+    };
     const bankId = deriveBankId(ctx, config);
     expect(bankId).toBe("channel-456");
   });
 
   it('should support ["provider"] isolation', () => {
-    const config: PluginConfig = { ...baseConfig, dynamicBankGranularity: ["provider"] };
+    const config: PluginConfig = {
+      ...baseConfig,
+      dynamicBankGranularity: ["provider"],
+    };
     const bankId = deriveBankId(ctx, config);
     expect(bankId).toBe("slack");
   });
 
   it("should support mixed fields including provider", () => {
-    const config: PluginConfig = { ...baseConfig, dynamicBankGranularity: ["provider", "user"] };
+    const config: PluginConfig = {
+      ...baseConfig,
+      dynamicBankGranularity: ["provider", "user"],
+    };
     const bankId = deriveBankId(ctx, config);
     expect(bankId).toBe("slack::user-789");
   });
@@ -111,7 +129,10 @@ describe("deriveBankId", () => {
       channelId: "discord",
       sessionKey: "agent:main:discord:channel:1472750640760623226",
     };
-    const config: PluginConfig = { ...baseConfig, dynamicBankGranularity: ["agent", "channel"] };
+    const config: PluginConfig = {
+      ...baseConfig,
+      dynamicBankGranularity: ["agent", "channel"],
+    };
     const bankId = deriveBankId(ctxDiscord, config);
     expect(bankId).toBe("main::channel%3A1472750640760623226");
   });
@@ -220,7 +241,9 @@ describe("deriveBankId with agentBankMap", () => {
       channelId: "channel-456",
       senderId: "user-789",
     };
-    expect(deriveBankId(ctxNamedLikeAPrototypeKey, config)).toBe("toString::channel-456::user-789");
+    expect(deriveBankId(ctxNamedLikeAPrototypeKey, config)).toBe(
+      "toString::channel-456::user-789",
+    );
   });
 
   it("ignores a mapped value that is not a usable string", () => {

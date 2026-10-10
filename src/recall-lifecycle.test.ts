@@ -1,19 +1,33 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { HindsightClient } from "@vectorize-io/hindsight-client";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import plugin from "./index.js";
-import type { MoltbotPluginAPI, PluginHookAgentContext, ServiceConfig } from "./types.js";
+import type {
+  MoltbotPluginAPI,
+  PluginHookAgentContext,
+  ServiceConfig,
+} from "./types.js";
 
 const emit = vi.hoisted(() => vi.fn());
-vi.mock("openclaw/plugin-sdk/agent-harness-runtime", () => ({ emitAgentEvent: emit }));
+vi.mock("openclaw/plugin-sdk/agent-harness-runtime", () => ({
+  emitAgentEvent: emit,
+}));
 
 let sdk: typeof import("openclaw/plugin-sdk/agent-harness-runtime");
 beforeAll(async () => {
-  sdk = await vi.importActual<typeof import("openclaw/plugin-sdk/agent-harness-runtime")>(
-    "openclaw/plugin-sdk/agent-harness-runtime"
-  );
+  sdk = await vi.importActual<
+    typeof import("openclaw/plugin-sdk/agent-harness-runtime")
+  >("openclaw/plugin-sdk/agent-harness-runtime");
 });
 
 function deferred<T>() {
@@ -24,7 +38,13 @@ function deferred<T>() {
   return { promise, resolve };
 }
 const memory = {
-  results: [{ id: "fixture", text: "A fixture observation", type: "observation" as const }],
+  results: [
+    {
+      id: "fixture",
+      text: "A fixture observation",
+      type: "observation" as const,
+    },
+  ],
 };
 
 describe("automatic recall service lifecycle", () => {
@@ -54,16 +74,16 @@ describe("automatic recall service lifecycle", () => {
               api_version: "0.10.0",
               features: { store_document_text: true },
             }),
-            { headers: { "Content-Type": "application/json" } }
-          )
-      )
+            { headers: { "Content-Type": "application/json" } },
+          ),
+      ),
     );
     api = {
       agent: { events: { emitAgentEvent: emit } },
       config: {
         plugins: {
           entries: {
-            "hindsight": {
+            hindsight: {
               config: {
                 hindsightApiUrl: "http://localhost:8888",
                 bankId: "test-bank",
@@ -101,10 +121,12 @@ describe("automatic recall service lifecycle", () => {
   it("shares a recall within the running service", async () => {
     const response = deferred<typeof memory>();
     const started = deferred<void>();
-    const recall = vi.spyOn(HindsightClient.prototype, "recall").mockImplementation(() => {
-      started.resolve();
-      return response.promise as ReturnType<HindsightClient["recall"]>;
-    });
+    const recall = vi
+      .spyOn(HindsightClient.prototype, "recall")
+      .mockImplementation(() => {
+        started.resolve();
+        return response.promise as ReturnType<HindsightClient["recall"]>;
+      });
     const first = run();
     await started.promise;
     const second = run();
@@ -112,12 +134,16 @@ describe("automatic recall service lifecycle", () => {
     expect(recall).toHaveBeenCalledTimes(1);
     response.resolve(memory);
     expect(await first).toEqual(
-      expect.objectContaining({ prependContext: expect.stringContaining("A fixture observation") })
+      expect.objectContaining({
+        prependContext: expect.stringContaining("A fixture observation"),
+      }),
     );
     expect(await second).toEqual(await first);
     const progress = emit.mock.calls.map(([event]) => event);
     for (const emitted of progress) {
-      expect(JSON.parse(JSON.stringify(emitted.data))).toStrictEqual(emitted.data);
+      expect(JSON.parse(JSON.stringify(emitted.data))).toStrictEqual(
+        emitted.data,
+      );
     }
     expect(progress.map((event) => event.data.state)).toEqual([
       "started",
@@ -128,7 +154,9 @@ describe("automatic recall service lifecycle", () => {
     expect(new Set(progress.map((event) => event.data.recallId)).size).toBe(2);
     for (const started of progress.slice(0, 2)) {
       expect(
-        progress.filter((event) => event.data.recallId === started.data.recallId)
+        progress.filter(
+          (event) => event.data.recallId === started.data.recallId,
+        ),
       ).toHaveLength(2);
     }
     expect(progress[2]).toEqual({
@@ -150,18 +178,23 @@ describe("automatic recall service lifecycle", () => {
     const response = deferred<typeof memory>();
     const started = deferred<void>();
     let signal: AbortSignal | undefined;
-    vi.spyOn(HindsightClient.prototype, "recall").mockImplementation((_bank, _query, options) => {
-      signal = options?.signal;
-      started.resolve();
-      return response.promise as ReturnType<HindsightClient["recall"]>;
-    });
+    vi.spyOn(HindsightClient.prototype, "recall").mockImplementation(
+      (_bank, _query, options) => {
+        signal = options?.signal;
+        started.resolve();
+        return response.promise as ReturnType<HindsightClient["recall"]>;
+      },
+    );
     const pending = run();
     await started.promise;
     await service.stop();
     response.resolve(memory);
     expect(await pending).toBeUndefined();
     expect(signal?.aborted).toBe(true);
-    expect(emit.mock.calls.map(([event]) => event.data.state)).toEqual(["started", "cancelled"]);
+    expect(emit.mock.calls.map(([event]) => event.data.state)).toEqual([
+      "started",
+      "cancelled",
+    ]);
     expect(emit.mock.calls[1][0].data.reason).toBe("service_stopped");
   });
   it.each([false, true])(
@@ -176,7 +209,9 @@ describe("automatic recall service lifecycle", () => {
           started.resolve();
           return old.promise as ReturnType<HindsightClient["recall"]>;
         })
-        .mockImplementation(() => fresh.promise as ReturnType<HindsightClient["recall"]>);
+        .mockImplementation(
+          () => fresh.promise as ReturnType<HindsightClient["recall"]>,
+        );
       const previous = run();
       await started.promise;
       if (stopFirst) await service.stop();
@@ -190,35 +225,50 @@ describe("automatic recall service lifecycle", () => {
       expect(recall).toHaveBeenCalledTimes(2);
       fresh.resolve(memory);
       expect(await successor).toEqual(
-        expect.objectContaining({ prependContext: expect.any(String) })
+        expect.objectContaining({ prependContext: expect.any(String) }),
       );
       expect(await duplicate).toEqual(await successor);
-    }
+    },
   );
   it("does not send if stopped while waiting for initialization", async () => {
     const ready = deferred<void>();
     const globalClient = (
-      globalThis as unknown as { __hindsightClient: { waitForReady(): Promise<void> } }
+      globalThis as unknown as {
+        __hindsightClient: { waitForReady(): Promise<void> };
+      }
     ).__hindsightClient;
     vi.spyOn(globalClient, "waitForReady").mockReturnValue(ready.promise);
-    const recall = vi.spyOn(HindsightClient.prototype, "recall").mockResolvedValue(memory as never);
+    const recall = vi
+      .spyOn(HindsightClient.prototype, "recall")
+      .mockResolvedValue(memory as never);
     const pending = run();
     await service.stop();
-    expect(emit.mock.calls.map(([event]) => event.data.state)).toEqual(["started", "cancelled"]);
+    expect(emit.mock.calls.map(([event]) => event.data.state)).toEqual([
+      "started",
+      "cancelled",
+    ]);
     ready.resolve();
     expect(await pending).toBeUndefined();
     expect(recall).not.toHaveBeenCalled();
     expect(emit).toHaveBeenCalledTimes(2);
   });
   it("reports zero results as successful completion", async () => {
-    vi.spyOn(HindsightClient.prototype, "recall").mockResolvedValue({ results: [] } as never);
+    vi.spyOn(HindsightClient.prototype, "recall").mockResolvedValue({
+      results: [],
+    } as never);
     expect(await run()).toBeUndefined();
-    expect(emit.mock.calls.map(([event]) => event.data.state)).toEqual(["started", "completed"]);
+    expect(emit.mock.calls.map(([event]) => event.data.state)).toEqual([
+      "started",
+      "completed",
+    ]);
     expect(emit.mock.calls[1][0].data.resultCount).toBe(0);
   });
   it("does not start progress for an empty query", async () => {
     expect(
-      await hooks.get("before_prompt_build")!({ rawMessage: "", messages: [] }, ctx)
+      await hooks.get("before_prompt_build")!(
+        { rawMessage: "", messages: [] },
+        ctx,
+      ),
     ).toBeUndefined();
     expect(emit).not.toHaveBeenCalled();
   });
@@ -228,36 +278,53 @@ describe("automatic recall service lifecycle", () => {
   ])("reports safe failure codes (%s)", async (error, reason) => {
     vi.spyOn(HindsightClient.prototype, "recall").mockRejectedValue(error);
     expect(await run()).toBeUndefined();
-    expect(emit.mock.calls.map(([event]) => event.data.state)).toEqual(["started", "failed"]);
+    expect(emit.mock.calls.map(([event]) => event.data.state)).toEqual([
+      "started",
+      "failed",
+    ]);
     expect(emit.mock.calls[1][0].data.reason).toBe(reason);
     expect(JSON.stringify(emit.mock.calls)).not.toContain("private query");
   });
   it("reports an unavailable client without pretending recall succeeded", async () => {
     const globalClient = (
-      globalThis as unknown as { __hindsightClient: { getClientForContext(): Promise<unknown> } }
+      globalThis as unknown as {
+        __hindsightClient: { getClientForContext(): Promise<unknown> };
+      }
     ).__hindsightClient;
     vi.spyOn(globalClient, "getClientForContext").mockResolvedValue(null);
     expect(await run()).toBeUndefined();
-    expect(emit.mock.calls.map(([event]) => event.data.state)).toEqual(["started", "skipped"]);
+    expect(emit.mock.calls.map(([event]) => event.data.state)).toEqual([
+      "started",
+      "skipped",
+    ]);
     expect(emit.mock.calls[1][0].data.reason).toBe("client_unavailable");
   });
   it("emits JSON-compatible data without a session key", async () => {
-    vi.spyOn(HindsightClient.prototype, "recall").mockResolvedValue(memory as never);
+    vi.spyOn(HindsightClient.prototype, "recall").mockResolvedValue(
+      memory as never,
+    );
     expect(
-      await hooks.get("before_prompt_build")!(event, { ...ctx, sessionKey: undefined })
+      await hooks.get("before_prompt_build")!(event, {
+        ...ctx,
+        sessionKey: undefined,
+      }),
     ).toEqual(expect.objectContaining({ prependContext: expect.any(String) }));
     expect(emit).toHaveBeenCalledTimes(2);
     for (const [emitted] of emit.mock.calls) {
       expect(emitted.data).not.toHaveProperty("sessionKey");
-      expect(JSON.parse(JSON.stringify(emitted.data))).toStrictEqual(emitted.data);
+      expect(JSON.parse(JSON.stringify(emitted.data))).toStrictEqual(
+        emitted.data,
+      );
     }
   });
   it("clamps duration when the system clock moves backwards", async () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(2000);
-    vi.spyOn(HindsightClient.prototype, "recall").mockImplementation(async () => {
-      clock.mockReturnValue(1000);
-      return memory as never;
-    });
+    vi.spyOn(HindsightClient.prototype, "recall").mockImplementation(
+      async () => {
+        clock.mockReturnValue(1000);
+        return memory as never;
+      },
+    );
     await run();
     expect(emit.mock.calls[1][0].data.durationMs).toBe(0);
   });
@@ -268,9 +335,14 @@ describe("automatic recall service lifecycle", () => {
         received.push(String(event.data.state));
     });
     emit.mockImplementation(sdk.emitAgentEvent);
-    const scopedEmit = vi.fn(() => ({ emitted: false, reason: "global side effects disabled" }));
+    const scopedEmit = vi.fn(() => ({
+      emitted: false,
+      reason: "global side effects disabled",
+    }));
     api.agent = { events: { emitAgentEvent: scopedEmit } };
-    vi.spyOn(HindsightClient.prototype, "recall").mockResolvedValue(memory as never);
+    vi.spyOn(HindsightClient.prototype, "recall").mockResolvedValue(
+      memory as never,
+    );
     try {
       await run();
     } finally {
@@ -280,34 +352,48 @@ describe("automatic recall service lifecycle", () => {
     expect(received).toEqual(["started", "completed"]);
   });
   it("does not emit after the host expires the hook invocation", async () => {
-    vi.spyOn(HindsightClient.prototype, "recall").mockResolvedValue(memory as never);
+    vi.spyOn(HindsightClient.prototype, "recall").mockResolvedValue(
+      memory as never,
+    );
     await hooks.get("before_prompt_build")!(event, {
       ...ctx,
-      hookInvocation: { assertActive() { throw new Error("expired"); } },
+      hookInvocation: {
+        assertActive() {
+          throw new Error("expired");
+        },
+      },
     });
     expect(emit).not.toHaveBeenCalled();
   });
-  it.each(["absent-registration-api", "throws", "rejects", "pending", "no-run-id"])(
-    "preserves recall when event emission is %s",
-    async (mode) => {
-      vi.spyOn(HindsightClient.prototype, "recall").mockResolvedValue(memory as never);
-      if (mode === "absent-registration-api") delete api.agent;
-      if (mode === "throws") {
-        emit.mockImplementation(() => {
-          throw new Error("subscriber");
-        });
-      }
-      if (mode === "rejects") emit.mockRejectedValue(new Error("subscriber"));
-      if (mode === "pending") emit.mockReturnValue(new Promise(() => {}));
-      const result = await hooks.get("before_prompt_build")!(
-        event,
-        mode === "no-run-id" ? { ...ctx, runId: undefined } : ctx
-      );
-      expect(result).toEqual(
-        expect.objectContaining({ prependContext: expect.stringContaining("A fixture observation") })
-      );
-      if (mode === "no-run-id") expect(emit).not.toHaveBeenCalled();
-      if (mode === "absent-registration-api") expect(emit).toHaveBeenCalledTimes(2);
+  it.each([
+    "absent-registration-api",
+    "throws",
+    "rejects",
+    "pending",
+    "no-run-id",
+  ])("preserves recall when event emission is %s", async (mode) => {
+    vi.spyOn(HindsightClient.prototype, "recall").mockResolvedValue(
+      memory as never,
+    );
+    if (mode === "absent-registration-api") delete api.agent;
+    if (mode === "throws") {
+      emit.mockImplementation(() => {
+        throw new Error("subscriber");
+      });
     }
-  );
+    if (mode === "rejects") emit.mockRejectedValue(new Error("subscriber"));
+    if (mode === "pending") emit.mockReturnValue(new Promise(() => {}));
+    const result = await hooks.get("before_prompt_build")!(
+      event,
+      mode === "no-run-id" ? { ...ctx, runId: undefined } : ctx,
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        prependContext: expect.stringContaining("A fixture observation"),
+      }),
+    );
+    if (mode === "no-run-id") expect(emit).not.toHaveBeenCalled();
+    if (mode === "absent-registration-api")
+      expect(emit).toHaveBeenCalledTimes(2);
+  });
 });
