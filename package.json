@@ -44,12 +44,12 @@
       "./dist/index.js"
     ],
     "compat": {
-      "pluginApi": ">=2026.9.6",
-      "minGatewayVersion": "2026.9.6"
+      "pluginApi": ">=2026.9.9",
+      "minGatewayVersion": "2026.9.9"
     },
     "build": {
-      "openclawVersion": "2026.9.6",
-      "pluginSdkVersion": "2026.9.6"
+      "openclawVersion": "2026.9.9",
+      "pluginSdkVersion": "2026.9.9"
     }
   },
   "scripts": {
@@ -74,7 +74,7 @@
     "@vectorize-io/hindsight-client": "^0.8.6"
   },
   "peerDependencies": {
-    "openclaw": "2026.9.6"
+    "openclaw": "2026.9.9"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
