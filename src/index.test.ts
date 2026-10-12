@@ -1655,7 +1655,9 @@ describe("prepareRetentionTranscript", () => {
         });
         expect(result!.transcript).toContain("Remember PostgreSQL.");
         expect(result!.transcript).toContain("Use UTC timestamps.");
-        expect(result!.transcript).toContain("Third turn: and use JSONB columns.");
+        expect(result!.transcript).toContain(
+          "Third turn: and use JSONB columns.",
+        );
         expect(result!.transcript).not.toContain(
           "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
         );

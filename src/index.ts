@@ -1096,9 +1096,7 @@ export function sanitizeInternalRuntimeContextFromBlocks<T = any>(
           remaining = "";
         } else {
           resultText += remaining.slice(0, beginMatch.index);
-          remaining = remaining.slice(
-            beginMatch.index + beginMatch[0].length,
-          );
+          remaining = remaining.slice(beginMatch.index + beginMatch[0].length);
           inContext = true;
         }
       } else {
