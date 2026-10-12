@@ -69,6 +69,21 @@ export interface MoltbotConfig {
   };
 }
 
+/**
+ * Origin metadata OpenClaw attaches to a run's input (and to inter-session
+ * messages), e.g. `{ kind: "inter_session", sourceTool: "subagent_settle" }`.
+ */
+export interface InputProvenance {
+  kind?: string;
+  sourceRole?: string;
+  sourceChannel?: string;
+  sourceTool?: string;
+  sourceSessionKey?: string;
+  originSessionId?: string;
+  jobId?: string;
+  runId?: string;
+}
+
 export interface PluginHookAgentContext {
   hookInvocation?: { assertActive(): void };
   runId?: string;
@@ -79,16 +94,28 @@ export interface PluginHookAgentContext {
   channelId?: string;
   senderId?: string;
   trigger?: string;
-  inputProvenance?: {
-    kind?: string;
-    sourceRole?: string;
-    sourceChannel?: string;
-    sourceTool?: string;
-    sourceSessionKey?: string;
-    originSessionId?: string;
-    jobId?: string;
-    runId?: string;
-  };
+  inputProvenance?: InputProvenance;
+}
+
+/** A single content block of an OpenClaw session message. */
+export interface OpenClawMessageContentBlock {
+  type?: string;
+  text?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Minimal shape of an OpenClaw session message as seen by the plugin. Only the
+ * fields used for turn classification are typed; anything else the host adds
+ * (timestamps, tool ids, …) passes through untouched.
+ */
+export interface OpenClawMessage {
+  role?: string;
+  content?: string | Array<OpenClawMessageContentBlock | null | undefined>;
+  trigger?: string;
+  inputProvenance?: InputProvenance;
+  provenance?: InputProvenance;
+  [key: string]: unknown;
 }
 
 export interface PluginConfig {

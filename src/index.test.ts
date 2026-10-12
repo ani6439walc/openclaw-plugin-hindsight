@@ -1383,6 +1383,198 @@ describe("prepareRetentionTranscript", () => {
     const result = prepareRetentionTranscript(messages, baseConfig, true);
     expect(result).toBeNull();
   });
+
+  describe("runtime context block alongside genuine user text", () => {
+    const textBeforeContext = [
+      "Remember that I prefer PostgreSQL.",
+      "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>",
+      'Conversation data: "[Inter-session message] isUser=false"',
+      "<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+    ].join("\n");
+
+    const textAfterContext = [
+      "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>",
+      'Conversation data: "[Inter-session message] isUser=false"',
+      "<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+      "Please summarize the meeting notes.",
+    ].join("\n");
+
+    const blockArrayContent = [
+      {
+        type: "text",
+        text: "Always format responses in markdown.\n<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nruntime metadata\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+      },
+    ];
+
+    it("retains genuine user text before context block in structured JSON mode", () => {
+      const messages = [
+        { role: "user", content: textBeforeContext },
+        { role: "assistant", content: "Noted, I will use PostgreSQL." },
+      ];
+      const result = prepareRetentionTranscript(messages, baseConfig);
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result!.transcript);
+      expect(parsed).toEqual([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Remember that I prefer PostgreSQL." },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Noted, I will use PostgreSQL." }],
+        },
+      ]);
+      expect(result!.transcript).not.toContain(
+        "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+      );
+    });
+
+    it("retains genuine user text after context block in structured JSON mode", () => {
+      const messages = [
+        { role: "user", content: textAfterContext },
+        { role: "assistant", content: "Here is the meeting summary." },
+      ];
+      const result = prepareRetentionTranscript(messages, baseConfig);
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result!.transcript);
+      expect(parsed).toEqual([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Please summarize the meeting notes." },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Here is the meeting summary." }],
+        },
+      ]);
+      expect(result!.transcript).not.toContain(
+        "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+      );
+    });
+
+    it("retains block-array genuine user text alongside context block in structured JSON mode", () => {
+      const messages = [
+        { role: "user", content: blockArrayContent },
+        { role: "assistant", content: "Understood, will use markdown." },
+      ];
+      const result = prepareRetentionTranscript(messages, baseConfig);
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result!.transcript);
+      expect(parsed).toEqual([
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Always format responses in markdown.",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Understood, will use markdown." }],
+        },
+      ]);
+      expect(result!.transcript).not.toContain(
+        "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+      );
+    });
+
+    it("retains genuine user text around context block in text-only JSON mode", () => {
+      const config: PluginConfig = { ...baseConfig, retainToolCalls: false };
+      const messagesBefore = [
+        { role: "user", content: textBeforeContext },
+        { role: "assistant", content: "Noted, using PostgreSQL." },
+      ];
+      const resultBefore = prepareRetentionTranscript(messagesBefore, config);
+      expect(resultBefore).not.toBeNull();
+      expect(JSON.parse(resultBefore!.transcript)).toEqual([
+        { role: "user", content: "Remember that I prefer PostgreSQL." },
+        { role: "assistant", content: "Noted, using PostgreSQL." },
+      ]);
+      expect(resultBefore!.transcript).not.toContain(
+        "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+      );
+
+      const messagesAfter = [
+        { role: "user", content: textAfterContext },
+        { role: "assistant", content: "Meeting summary ready." },
+      ];
+      const resultAfter = prepareRetentionTranscript(messagesAfter, config);
+      expect(resultAfter).not.toBeNull();
+      expect(JSON.parse(resultAfter!.transcript)).toEqual([
+        { role: "user", content: "Please summarize the meeting notes." },
+        { role: "assistant", content: "Meeting summary ready." },
+      ]);
+      expect(resultAfter!.transcript).not.toContain(
+        "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+      );
+    });
+
+    it("retains genuine user text around context block in text format", () => {
+      const config: PluginConfig = { ...baseConfig, retainFormat: "text" };
+      const messagesBefore = [
+        { role: "user", content: textBeforeContext },
+        { role: "assistant", content: "Noted, using PostgreSQL." },
+      ];
+      const resultBefore = prepareRetentionTranscript(messagesBefore, config);
+      expect(resultBefore).not.toBeNull();
+      expect(resultBefore!.transcript).toContain(
+        "Remember that I prefer PostgreSQL.",
+      );
+      expect(resultBefore!.transcript).toContain("Noted, using PostgreSQL.");
+      expect(resultBefore!.transcript).not.toContain(
+        "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+      );
+
+      const messagesAfter = [
+        { role: "user", content: textAfterContext },
+        { role: "assistant", content: "Meeting summary ready." },
+      ];
+      const resultAfter = prepareRetentionTranscript(messagesAfter, config);
+      expect(resultAfter).not.toBeNull();
+      expect(resultAfter!.transcript).toContain(
+        "Please summarize the meeting notes.",
+      );
+      expect(resultAfter!.transcript).toContain("Meeting summary ready.");
+      expect(resultAfter!.transcript).not.toContain(
+        "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+      );
+    });
+
+    it("preserves turns with runtime context blocks in a later chunked retention window while stripping metadata", () => {
+      const messages = [
+        { role: "user", content: "First turn: Hello!" },
+        { role: "assistant", content: "Hello there!" },
+        {
+          role: "user",
+          content: textBeforeContext,
+        },
+        { role: "assistant", content: "Noted, I will use PostgreSQL." },
+        {
+          role: "user",
+          content: blockArrayContent,
+        },
+        { role: "assistant", content: "Understood, markdown enabled." },
+        { role: "user", content: "Final turn: goodbye!" },
+        { role: "assistant", content: "Goodbye!" },
+      ];
+      const result = prepareRetentionTranscript(messages, baseConfig, true);
+      expect(result).not.toBeNull();
+      const transcript = result!.transcript;
+      expect(transcript).toContain("First turn: Hello!");
+      expect(transcript).toContain("Remember that I prefer PostgreSQL.");
+      expect(transcript).toContain("Always format responses in markdown.");
+      expect(transcript).toContain("Final turn: goodbye!");
+      expect(transcript).not.toContain("BEGIN_OPENCLAW_INTERNAL_CONTEXT");
+      expect(transcript).not.toContain("Inter-session message");
+      expect(transcript).not.toContain("runtime metadata");
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1498,6 +1690,25 @@ describe("sliceLastTurnsByUserBoundary", () => {
     // Asking for 2 turns should look past the internal subagent turn to include Turn 1
     const result = sliceLastTurnsByUserBoundary(messages, 2);
     expect(result).toEqual(messages);
+  });
+
+  it("counts user turns that carry protected runtime context alongside genuine text", () => {
+    const messages = [
+      { role: "user", content: "Turn 1 user" },
+      { role: "assistant", content: "Turn 1 assistant" },
+      {
+        role: "user",
+        content:
+          "Turn 2 user with pref\n<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nmeta\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+      },
+      { role: "assistant", content: "Turn 2 assistant" },
+      { role: "user", content: "Turn 3 user" },
+      { role: "assistant", content: "Turn 3 assistant" },
+    ];
+
+    // Asking for 2 turns should slice Turn 2 and Turn 3 (starting at index 2)
+    const result = sliceLastTurnsByUserBoundary(messages, 2);
+    expect(result).toEqual(messages.slice(2));
   });
 });
 

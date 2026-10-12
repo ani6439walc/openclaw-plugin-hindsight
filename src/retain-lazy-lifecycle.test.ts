@@ -274,3 +274,31 @@ it("omits provenance-skipped internal turns from subsequent chunked-retain windo
   expect(item.content).not.toContain("Subagent Context");
   expect(item.content).not.toContain("Acknowledged subagent completion");
 });
+
+it("retains genuine user text that carries a protected runtime context block and strips the block", async () => {
+  await hook(
+    {
+      success: true,
+      messages: [
+        {
+          role: "user",
+          content:
+            "Remember that I prefer PostgreSQL.\n<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nConversation data: \"[Inter-session message] isUser=false\"\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+        },
+        {
+          role: "assistant",
+          content: "Understood, PostgreSQL preference noted.",
+        },
+      ],
+    },
+    ctx,
+  );
+
+  const queue = new RetainQueue({ filePath: queuePath });
+  expect(queue.size()).toBe(1);
+  const item = queue.peek()[0];
+  expect(item.content).toContain("Remember that I prefer PostgreSQL.");
+  expect(item.content).toContain("Understood, PostgreSQL preference noted.");
+  expect(item.content).not.toContain("BEGIN_OPENCLAW_INTERNAL_CONTEXT");
+  expect(item.content).not.toContain("Inter-session message");
+});

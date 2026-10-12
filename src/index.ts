@@ -1,5 +1,8 @@
 import type {
+  InputProvenance,
   MoltbotPluginAPI,
+  OpenClawMessage,
+  OpenClawMessageContentBlock,
   PluginConfig,
   PluginHookAgentContext,
   PluginToolContext,
@@ -1725,39 +1728,46 @@ export function getIdentitySkipReason(
   return { resolvedCtx, reason: undefined };
 }
 
+// OpenClaw-generated operational/session-bootstrap prefixes. These are not
+// user-authored content, so they should not create recall/retain entries.
+const OPERATIONAL_TEXT_PATTERNS: readonly RegExp[] = [
+  /^A new session was started via \/(?:new|reset)\./i,
+  /^Based on this conversation, generate a short 1-2/i,
+  /^This (?:script|task|job|workflow) updates .* index/i,
+  /^\[Subagent Context\]/i,
+  /^Every subagent in this batch has now settled/i,
+  /^Your prior run ended while waiting for descendant subagent completions/i,
+  /^All pending descendants for that run have now settled/i,
+  /^Child completion results:/i,
+  /^\[Inter-session message\]/i,
+];
+
+const INTERNAL_CONTEXT_MARKER_RE = /<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/i;
+
 export function isEphemeralOperationalText(text: string | undefined): boolean {
   if (!text || typeof text !== "string") return false;
 
-  const normalized = text
+  let normalized = text
     .replace(/\[role:\s*[^\]]+\]\s*/gi, "")
     .replace(/\[[a-z]+:end\]\s*/gi, "")
     .trim();
 
-  // These prefixes are OpenClaw-generated operational/session-bootstrap strings,
-  // not user-authored content, so they should not create recall/retain entries.
-  return [
-    /^A new session was started via \/(?:new|reset)\./i,
-    /^Based on this conversation, generate a short 1-2/i,
-    /^This (?:script|task|job|workflow) updates .* index/i,
-    /^\[Subagent Context\]/i,
-    /^Every subagent in this batch has now settled/i,
-    /^Your prior run ended while waiting for descendant subagent completions/i,
-    /^All pending descendants for that run have now settled/i,
-    /^Child completion results:/i,
-    /^\[Inter-session message\]/i,
-    /<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/i,
-  ].some((pattern) => pattern.test(normalized));
+  // A protected runtime-context block is classified by what surrounds it, not
+  // by its mere presence: a block on its own is internal, but genuine user text
+  // that merely carries one must still be recalled/retained.
+  if (INTERNAL_CONTEXT_MARKER_RE.test(normalized)) {
+    normalized = stripInternalRuntimeContext(normalized).trim();
+    if (!normalized) return true;
+  }
+
+  return OPERATIONAL_TEXT_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
 /**
- * Check whether a hook context represents an OpenClaw inter-session
- * message or internal subagent coordination/settlement wake event.
+ * Whether input provenance marks an OpenClaw inter-session message or an
+ * internal subagent coordination/settlement event.
  */
-export function isInterSessionInternalEvent(
-  ctx?: PluginHookAgentContext,
-): boolean {
-  if (ctx?.trigger === "subagent") return true;
-  const prov = ctx?.inputProvenance;
+function isInternalProvenance(prov: InputProvenance | undefined): boolean {
   if (!prov) return false;
   return (
     prov.kind === "inter_session" ||
@@ -1769,24 +1779,33 @@ export function isInterSessionInternalEvent(
 }
 
 /**
+ * Check whether a hook context represents an OpenClaw inter-session
+ * message or internal subagent coordination/settlement wake event.
+ */
+export function isInterSessionInternalEvent(
+  ctx?: PluginHookAgentContext,
+): boolean {
+  if (ctx?.trigger === "subagent") return true;
+  return isInternalProvenance(ctx?.inputProvenance);
+}
+
+/**
  * Extract combined text from a message content field (string or block array).
  */
-function extractMessageText(content: unknown): string {
+function extractMessageText(content: OpenClawMessage["content"]): string {
   if (typeof content === "string") {
     return content;
   }
   if (Array.isArray(content)) {
     return content
       .filter(
-        (block): block is { type?: string; text?: string } =>
-          !!block && typeof block === "object",
-      )
-      .filter(
-        (block) =>
+        (block): block is OpenClawMessageContentBlock & { text: string } =>
+          !!block &&
+          typeof block === "object" &&
           (block.type === "text" || !block.type) &&
           typeof block.text === "string",
       )
-      .map((block) => block.text || "")
+      .map((block) => block.text)
       .join("\n");
   }
   return "";
@@ -1796,15 +1815,17 @@ function extractMessageText(content: unknown): string {
  * Determine whether a message initiates an actual user turn (as opposed to
  * synthetic messages like tool results normalized into role:"user").
  */
-export function isUserTurnInitiator(msg: any): boolean {
+export function isUserTurnInitiator(
+  msg: OpenClawMessage | null | undefined,
+): boolean {
   if (!msg || msg.role !== "user") return false;
   const content = msg.content;
   if (typeof content === "string") return true;
   if (Array.isArray(content)) {
-    const hasToolResult = content.some((b: any) => b?.type === "tool_result");
+    const hasToolResult = content.some((b) => b?.type === "tool_result");
     const hasText = content.some(
-      (b: any) =>
-        b &&
+      (b) =>
+        !!b &&
         (b.type === "text" || !b.type) &&
         typeof b.text === "string" &&
         b.text.trim().length > 0,
@@ -1820,49 +1841,38 @@ export function isUserTurnInitiator(msg: any): boolean {
 /**
  * Check whether a message represents an internal, subagent, or operational turn
  * that should not be retained in long-term memory.
+ *
+ * Provenance markers skip immediately. Text classification runs only after the
+ * protected runtime-context block and other envelopes are stripped, so genuine
+ * user text that merely carries such a block is kept, while context-only and
+ * residual settlement messages are discarded.
  */
-export function isInternalOrOperationalTurnMessage(msg: any): boolean {
+export function isInternalOrOperationalTurnMessage(
+  msg: OpenClawMessage | null | undefined,
+): boolean {
   if (!msg || typeof msg !== "object") return false;
 
   if (msg.trigger === "subagent") return true;
-
-  const prov = msg.inputProvenance ?? msg.provenance;
-  if (prov) {
-    if (
-      prov.kind === "inter_session" ||
-      prov.sourceChannel === "internal" ||
-      prov.sourceRole === "subagent" ||
-      prov.sourceTool === "subagent_settle" ||
-      prov.sourceTool === "subagent_announce"
-    ) {
-      return true;
-    }
-  }
+  if (isInternalProvenance(msg.inputProvenance ?? msg.provenance)) return true;
 
   const rawText = extractMessageText(msg.content);
   if (!rawText.trim()) {
     return false;
   }
 
-  if (isEphemeralOperationalText(rawText)) {
-    return true;
-  }
-
-  let cleaned = rawText.replace(/^(?:System:.*\n)+\n?/, "");
-  cleaned = stripRuntimeEnvelope(
-    stripInlineTimestampPrefix(stripMetadataEnvelopes(cleaned)),
+  const cleaned = stripRuntimeEnvelope(
+    stripInlineTimestampPrefix(
+      stripMetadataEnvelopes(rawText.replace(/^(?:System:.*\n)+\n?/, "")),
+    ),
   ).trim();
 
-  if (isEphemeralOperationalText(cleaned)) {
-    return true;
+  if (!cleaned) {
+    // Nothing user-authored survives. Only a protected runtime-context block
+    // makes that internal; a metadata-only message keeps its prior handling.
+    return INTERNAL_CONTEXT_MARKER_RE.test(rawText);
   }
 
-  const withoutInternal = stripInternalRuntimeContext(cleaned).trim();
-  if (withoutInternal.length === 0 && rawText.trim().length > 0) {
-    return true;
-  }
-
-  return false;
+  return isEphemeralOperationalText(cleaned);
 }
 
 /**
@@ -1871,14 +1881,16 @@ export function isInternalOrOperationalTurnMessage(msg: any): boolean {
  * turn (the user message and any subsequent assistant/tool messages) is omitted,
  * while preserving neighboring genuine user turns.
  */
-export function filterInternalAndOperationalTurns(messages: any[]): any[] {
+export function filterInternalAndOperationalTurns<T extends OpenClawMessage>(
+  messages: T[],
+): T[] {
   if (!Array.isArray(messages) || messages.length === 0) {
     return [];
   }
 
   interface MessageTurn {
-    userMsg: any | null;
-    messages: any[];
+    userMsg: T | null;
+    messages: T[];
   }
 
   const turns: MessageTurn[] = [];
@@ -1908,7 +1920,7 @@ export function filterInternalAndOperationalTurns(messages: any[]): any[] {
     turns.push(currentTurn);
   }
 
-  const keptMessages: any[] = [];
+  const keptMessages: T[] = [];
   for (const turn of turns) {
     if (turn.userMsg && isInternalOrOperationalTurnMessage(turn.userMsg)) {
       continue;
