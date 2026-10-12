@@ -2849,6 +2849,17 @@ describe("inbound metadata blocks (marker and legacy forms)", () => {
     expect(stripMetadataEnvelopes(text)).toBe("what was the decision?");
   });
 
+  it("strips truncated internal runtime context blocks without closing delimiter", () => {
+    const text = [
+      "what was the decision?",
+      "",
+      "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>",
+      'Conversation data: "[Inter-session message] truncated...',
+    ].join("\n");
+    expect(stripInternalRuntimeContext(text)).toBe("what was the decision?");
+    expect(stripMetadataEnvelopes(text)).toBe("what was the decision?");
+  });
+
   it("rejects subagent settlement notifications as recall queries", () => {
     const settlePrompt = [
       "[Subagent Context] Every subagent in this batch has now settled, including its descendants.",

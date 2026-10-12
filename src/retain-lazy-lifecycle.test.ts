@@ -136,3 +136,15 @@ it("retains the persisted turn when service initialization fails", async () => {
   await failed;
   expect(new RetainQueue({ filePath: queuePath }).size()).toBe(1);
 });
+
+it("skips retention when inputProvenance indicates a subagent or inter-session event", async () => {
+  await hook(event, {
+    ...ctx,
+    inputProvenance: {
+      kind: "inter_session",
+      sourceChannel: "internal",
+      sourceTool: "subagent_settle",
+    },
+  });
+  expect(new RetainQueue({ filePath: queuePath }).size()).toBe(0);
+});
