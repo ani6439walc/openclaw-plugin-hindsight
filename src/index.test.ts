@@ -1304,8 +1304,7 @@ describe("prepareRetentionTranscript", () => {
     const settleMessages = [
       {
         role: "user",
-        content:
-          "[Subagent Context] Worker finished work successfully.",
+        content: "[Subagent Context] Worker finished work successfully.",
       },
       {
         role: "assistant",
@@ -1327,7 +1326,10 @@ describe("prepareRetentionTranscript", () => {
       },
       { role: "assistant", content: "Received subagent status report." },
       { role: "user", content: "Great, now add an indexing strategy." },
-      { role: "assistant", content: "We should create a B-tree index on user_id." },
+      {
+        role: "assistant",
+        content: "We should create a B-tree index on user_id.",
+      },
     ];
     const result = prepareRetentionTranscript(messages, baseConfig, true);
     expect(result).not.toBeNull();
@@ -1574,6 +1576,211 @@ describe("prepareRetentionTranscript", () => {
       expect(transcript).not.toContain("Inter-session message");
       expect(transcript).not.toContain("runtime metadata");
     });
+
+    describe("protected runtime context split across adjacent text blocks", () => {
+      const splitContextBlocks = [
+        {
+          type: "text",
+          text: "Remember PostgreSQL.\n<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nSECRET_ONE",
+        },
+        {
+          type: "text",
+          text: "SECRET_TWO\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>\nUse UTC timestamps.",
+        },
+      ];
+
+      it("sanitizes context split across adjacent text blocks in default structured JSON for a single turn", () => {
+        const messages = [
+          { role: "user", content: splitContextBlocks },
+          {
+            role: "assistant",
+            content: "Understood, PostgreSQL and UTC timestamps.",
+          },
+        ];
+        const result = prepareRetentionTranscript(messages, baseConfig);
+        expect(result).not.toBeNull();
+        const parsed = JSON.parse(result!.transcript);
+        expect(parsed).toEqual([
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Remember PostgreSQL." },
+              { type: "text", text: "Use UTC timestamps." },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: "Understood, PostgreSQL and UTC timestamps.",
+              },
+            ],
+          },
+        ]);
+        expect(result!.transcript).toContain("Remember PostgreSQL.");
+        expect(result!.transcript).toContain("Use UTC timestamps.");
+        expect(result!.transcript).not.toContain(
+          "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain(
+          "END_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain("SECRET_ONE");
+        expect(result!.transcript).not.toContain("SECRET_TWO");
+      });
+
+      it("sanitizes context split across adjacent text blocks in a later chunked retention window (structured JSON)", () => {
+        const messages = [
+          { role: "user", content: "First turn: Hello database." },
+          { role: "assistant", content: "Hello! Ready for queries." },
+          { role: "user", content: splitContextBlocks },
+          {
+            role: "assistant",
+            content: "Understood, PostgreSQL and UTC timestamps.",
+          },
+          { role: "user", content: "Third turn: and use JSONB columns." },
+          { role: "assistant", content: "Will use JSONB columns." },
+        ];
+        const result = prepareRetentionTranscript(messages, baseConfig, true);
+        expect(result).not.toBeNull();
+        const parsed = JSON.parse(result!.transcript);
+        expect(parsed).toHaveLength(6);
+        expect(parsed[2]).toEqual({
+          role: "user",
+          content: [
+            { type: "text", text: "Remember PostgreSQL." },
+            { type: "text", text: "Use UTC timestamps." },
+          ],
+        });
+        expect(result!.transcript).toContain("Remember PostgreSQL.");
+        expect(result!.transcript).toContain("Use UTC timestamps.");
+        expect(result!.transcript).toContain("Third turn: and use JSONB columns.");
+        expect(result!.transcript).not.toContain(
+          "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain(
+          "END_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain("SECRET_ONE");
+        expect(result!.transcript).not.toContain("SECRET_TWO");
+      });
+
+      it("sanitizes context split across adjacent text blocks in text-only JSON mode", () => {
+        const config: PluginConfig = { ...baseConfig, retainToolCalls: false };
+        const messages = [
+          { role: "user", content: splitContextBlocks },
+          {
+            role: "assistant",
+            content: "Understood, PostgreSQL and UTC timestamps.",
+          },
+        ];
+        const result = prepareRetentionTranscript(messages, config);
+        expect(result).not.toBeNull();
+        const parsed = JSON.parse(result!.transcript);
+        expect(parsed).toEqual([
+          {
+            role: "user",
+            content: "Remember PostgreSQL.\nUse UTC timestamps.",
+          },
+          {
+            role: "assistant",
+            content: "Understood, PostgreSQL and UTC timestamps.",
+          },
+        ]);
+        expect(result!.transcript).toContain("Remember PostgreSQL.");
+        expect(result!.transcript).toContain("Use UTC timestamps.");
+        expect(result!.transcript).not.toContain(
+          "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain(
+          "END_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain("SECRET_ONE");
+        expect(result!.transcript).not.toContain("SECRET_TWO");
+      });
+
+      it("sanitizes context split across adjacent text blocks in text format", () => {
+        const config: PluginConfig = { ...baseConfig, retainFormat: "text" };
+        const messages = [
+          { role: "user", content: splitContextBlocks },
+          {
+            role: "assistant",
+            content: "Understood, PostgreSQL and UTC timestamps.",
+          },
+        ];
+        const result = prepareRetentionTranscript(messages, config);
+        expect(result).not.toBeNull();
+        expect(result!.transcript).toContain("Remember PostgreSQL.");
+        expect(result!.transcript).toContain("Use UTC timestamps.");
+        expect(result!.transcript).toContain(
+          "Understood, PostgreSQL and UTC timestamps.",
+        );
+        expect(result!.transcript).not.toContain(
+          "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain(
+          "END_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain("SECRET_ONE");
+        expect(result!.transcript).not.toContain("SECRET_TWO");
+      });
+
+      it("preserves tool call block ordering when context is sanitized across adjacent text blocks in assistant messages", () => {
+        const assistantBlocks = [
+          {
+            type: "text",
+            text: "Analyzing requirements.\n<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nINTERNAL_DECISION",
+          },
+          {
+            type: "toolCall",
+            id: "call_123",
+            name: "query_schema",
+            arguments: { table: "users" },
+          },
+          {
+            type: "text",
+            text: "INTERNAL_OBSERVATION\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>\nProceeding with migration.",
+          },
+        ];
+        const messages = [
+          { role: "user", content: "Please run migration." },
+          { role: "assistant", content: assistantBlocks },
+        ];
+        const result = prepareRetentionTranscript(messages, baseConfig);
+        expect(result).not.toBeNull();
+        const parsed = JSON.parse(result!.transcript);
+        expect(parsed).toEqual([
+          {
+            role: "user",
+            content: [{ type: "text", text: "Please run migration." }],
+          },
+          {
+            role: "assistant",
+            content: [
+              { type: "text", text: "Analyzing requirements." },
+              {
+                type: "tool_use",
+                id: "call_123",
+                name: "query_schema",
+                input: { table: "users" },
+              },
+              { type: "text", text: "Proceeding with migration." },
+            ],
+          },
+        ]);
+        expect(result!.transcript).toContain("Analyzing requirements.");
+        expect(result!.transcript).toContain("Proceeding with migration.");
+        expect(result!.transcript).not.toContain(
+          "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain(
+          "END_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain("INTERNAL_DECISION");
+        expect(result!.transcript).not.toContain("INTERNAL_OBSERVATION");
+      });
+    });
   });
 });
 
@@ -1680,7 +1887,8 @@ describe("sliceLastTurnsByUserBoundary", () => {
       { role: "assistant", content: "Turn 1 genuine assistant" },
       {
         role: "user",
-        content: "[Subagent Context] Every subagent in this batch has now settled",
+        content:
+          "[Subagent Context] Every subagent in this batch has now settled",
       },
       { role: "assistant", content: "Turn 2 subagent ack" },
       { role: "user", content: "Turn 3 genuine user" },

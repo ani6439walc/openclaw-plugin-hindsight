@@ -1018,8 +1018,109 @@ const INTERNAL_RUNTIME_CONTEXT_RE =
  * (<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>> ... <<<END_OPENCLAW_INTERNAL_CONTEXT>>>).
  */
 export function stripInternalRuntimeContext(content: string): string {
-  if (!content) return content;
+  if (!content || typeof content !== "string") return content;
+  if (
+    !content.includes("<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>") &&
+    !content.includes("<<<END_OPENCLAW_INTERNAL_CONTEXT>>>")
+  ) {
+    return content;
+  }
   return content.replace(INTERNAL_RUNTIME_CONTEXT_RE, "\n").trim();
+}
+
+/**
+ * Sanitize protected OpenClaw internal runtime context blocks across adjacent
+ * text blocks within a message.
+ *
+ * OpenClaw message content can arrive as an array of content blocks where the
+ * opening delimiter (<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>) is in one block and
+ * the closing delimiter (<<<END_OPENCLAW_INTERNAL_CONTEXT>>>) is in a subsequent block.
+ * This function tracks context-block state across blocks so that:
+ * 1. Surrounding genuine user text before and after the delimiters is preserved.
+ * 2. Intermediate payload text and delimiters are stripped across all affected blocks.
+ * 3. The original ordering of text and toolCall blocks is preserved.
+ */
+export function sanitizeInternalRuntimeContextFromBlocks<T = any>(
+  blocks: T[],
+): T[] {
+  if (!Array.isArray(blocks) || blocks.length === 0) {
+    return blocks;
+  }
+
+  const hasMarker = blocks.some(
+    (b: any) =>
+      b &&
+      typeof b === "object" &&
+      typeof b.text === "string" &&
+      (b.text.includes("<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>") ||
+        b.text.includes("<<<END_OPENCLAW_INTERNAL_CONTEXT>>>")),
+  );
+  if (!hasMarker) {
+    return blocks;
+  }
+
+  let inContext = false;
+  const result: T[] = [];
+
+  for (const block of blocks) {
+    if (
+      !block ||
+      typeof block !== "object" ||
+      ((block as any).type !== "text" && (block as any).type !== undefined) ||
+      typeof (block as any).text !== "string"
+    ) {
+      result.push(block);
+      continue;
+    }
+
+    let remaining = (block as any).text as string;
+    let resultText = "";
+
+    while (remaining.length > 0) {
+      if (!inContext) {
+        const beginMatch = remaining.match(
+          /(?:^|\r?\n)?<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/i,
+        );
+        if (!beginMatch || beginMatch.index === undefined) {
+          const orphanEndMatch = remaining.match(
+            /<<<END_OPENCLAW_INTERNAL_CONTEXT>>>(?:\r?\n|$)?/i,
+          );
+          if (orphanEndMatch && orphanEndMatch.index !== undefined) {
+            resultText += remaining.slice(0, orphanEndMatch.index);
+            remaining = remaining.slice(
+              orphanEndMatch.index + orphanEndMatch[0].length,
+            );
+            continue;
+          }
+          resultText += remaining;
+          remaining = "";
+        } else {
+          resultText += remaining.slice(0, beginMatch.index);
+          remaining = remaining.slice(
+            beginMatch.index + beginMatch[0].length,
+          );
+          inContext = true;
+        }
+      } else {
+        const endMatch = remaining.match(
+          /<<<END_OPENCLAW_INTERNAL_CONTEXT>>>(?:\r?\n|$)?/i,
+        );
+        if (!endMatch || endMatch.index === undefined) {
+          remaining = "";
+        } else {
+          remaining = remaining.slice(endMatch.index + endMatch[0].length);
+          inContext = false;
+        }
+      }
+    }
+
+    result.push({
+      ...block,
+      text: resultText,
+    });
+  }
+
+  return result;
 }
 
 /**
@@ -1797,7 +1898,8 @@ function extractMessageText(content: OpenClawMessage["content"]): string {
     return content;
   }
   if (Array.isArray(content)) {
-    return content
+    const sanitized = sanitizeInternalRuntimeContextFromBlocks(content);
+    return sanitized
       .filter(
         (block): block is OpenClawMessageContentBlock & { text: string } =>
           !!block &&
@@ -4264,14 +4366,6 @@ export function prepareRetentionTranscript(
       }
     }
     if (lastUserIdx === -1) {
-      for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i]?.role === "user") {
-          lastUserIdx = i;
-          break;
-        }
-      }
-    }
-    if (lastUserIdx === -1) {
       return null; // No user message found in turn
     }
     const lastTurnMessages = messages.slice(lastUserIdx);
@@ -4326,7 +4420,8 @@ export function prepareRetentionTranscript(
     if (typeof msg.content === "string") {
       content = msg.content;
     } else if (Array.isArray(msg.content)) {
-      content = msg.content
+      const sanitized = sanitizeInternalRuntimeContextFromBlocks(msg.content);
+      content = sanitized
         .filter((block: any) => block.type === "text")
         .map((block: any) => block.text)
         .join("\n");
@@ -4454,8 +4549,9 @@ function extractStructuredBlocks(content: any, role: string): any[] {
   }
   if (!Array.isArray(content)) return [];
 
+  const sanitizedContent = sanitizeInternalRuntimeContextFromBlocks(content);
   const blocks: any[] = [];
-  for (const block of content) {
+  for (const block of sanitizedContent) {
     if (!block || typeof block !== "object") continue;
     const blockType = block.type;
 

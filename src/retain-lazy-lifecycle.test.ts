@@ -283,7 +283,7 @@ it("retains genuine user text that carries a protected runtime context block and
         {
           role: "user",
           content:
-            "Remember that I prefer PostgreSQL.\n<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nConversation data: \"[Inter-session message] isUser=false\"\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+            'Remember that I prefer PostgreSQL.\n<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nConversation data: "[Inter-session message] isUser=false"\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>',
         },
         {
           role: "assistant",
@@ -301,4 +301,43 @@ it("retains genuine user text that carries a protected runtime context block and
   expect(item.content).toContain("Understood, PostgreSQL preference noted.");
   expect(item.content).not.toContain("BEGIN_OPENCLAW_INTERNAL_CONTEXT");
   expect(item.content).not.toContain("Inter-session message");
+});
+
+it("retains genuine user text across adjacent text blocks in default JSON mode and strips split context block", async () => {
+  await hook(
+    {
+      success: true,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Remember PostgreSQL.\n<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nSECRET_ONE",
+            },
+            {
+              type: "text",
+              text: "SECRET_TWO\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>\nUse UTC timestamps.",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: "Understood, PostgreSQL and UTC timestamps.",
+        },
+      ],
+    },
+    ctx,
+  );
+
+  const queue = new RetainQueue({ filePath: queuePath });
+  expect(queue.size()).toBe(1);
+  const item = queue.peek()[0];
+  expect(item.content).toContain("Remember PostgreSQL.");
+  expect(item.content).toContain("Use UTC timestamps.");
+  expect(item.content).toContain("Understood, PostgreSQL and UTC timestamps.");
+  expect(item.content).not.toContain("BEGIN_OPENCLAW_INTERNAL_CONTEXT");
+  expect(item.content).not.toContain("END_OPENCLAW_INTERNAL_CONTEXT");
+  expect(item.content).not.toContain("SECRET_ONE");
+  expect(item.content).not.toContain("SECRET_TWO");
 });
