@@ -341,3 +341,61 @@ it("retains genuine user text across adjacent text blocks in default JSON mode a
   expect(item.content).not.toContain("SECRET_ONE");
   expect(item.content).not.toContain("SECRET_TWO");
 });
+
+it("queues no retain for one-block context-only array in agent_end path", async () => {
+  await hook(
+    {
+      success: true,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nSECRET_ONE\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: "Internal coordination reply",
+        },
+      ],
+    },
+    ctx,
+  );
+
+  const queue = new RetainQueue({ filePath: queuePath });
+  expect(queue.size()).toBe(0);
+});
+
+it("queues no retain for split-block context-only array in agent_end path", async () => {
+  await hook(
+    {
+      success: true,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nSECRET_ONE",
+            },
+            {
+              type: "text",
+              text: "SECRET_TWO\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: "Internal coordination reply",
+        },
+      ],
+    },
+    ctx,
+  );
+
+  const queue = new RetainQueue({ filePath: queuePath });
+  expect(queue.size()).toBe(0);
+});

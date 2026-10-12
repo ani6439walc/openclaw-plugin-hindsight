@@ -1783,6 +1783,87 @@ describe("prepareRetentionTranscript", () => {
         expect(result!.transcript).not.toContain("INTERNAL_OBSERVATION");
       });
     });
+
+    describe("context-only block arrays", () => {
+      const oneBlockContextOnly = [
+        {
+          type: "text",
+          text: "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nSECRET_ONE\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+        },
+      ];
+
+      const splitBlockContextOnly = [
+        {
+          type: "text",
+          text: "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nSECRET_ONE",
+        },
+        {
+          type: "text",
+          text: "SECRET_TWO\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+        },
+      ];
+
+      it("returns null for one-block context-only array in default current-turn retention", () => {
+        const messages = [
+          { role: "user", content: oneBlockContextOnly },
+          { role: "assistant", content: "Internal coordination reply" },
+        ];
+        const result = prepareRetentionTranscript(messages, baseConfig);
+        expect(result).toBeNull();
+      });
+
+      it("returns null for split-block context-only array in default current-turn retention", () => {
+        const messages = [
+          { role: "user", content: splitBlockContextOnly },
+          { role: "assistant", content: "Internal coordination reply" },
+        ];
+        const result = prepareRetentionTranscript(messages, baseConfig);
+        expect(result).toBeNull();
+      });
+
+      it("omits the complete internal turn for one-block context-only array in chunked retention and keeps surrounding turns", () => {
+        const messages = [
+          { role: "user", content: "Turn 1 genuine user prompt" },
+          { role: "assistant", content: "Turn 1 genuine assistant reply" },
+          { role: "user", content: oneBlockContextOnly },
+          { role: "assistant", content: "Internal coordination reply" },
+          { role: "user", content: "Turn 3 genuine user prompt" },
+          { role: "assistant", content: "Turn 3 genuine assistant reply" },
+        ];
+        const result = prepareRetentionTranscript(messages, baseConfig, true);
+        expect(result).not.toBeNull();
+        const transcript = result!.transcript;
+        expect(transcript).toContain("Turn 1 genuine user prompt");
+        expect(transcript).toContain("Turn 1 genuine assistant reply");
+        expect(transcript).toContain("Turn 3 genuine user prompt");
+        expect(transcript).toContain("Turn 3 genuine assistant reply");
+        expect(transcript).not.toContain("Internal coordination reply");
+        expect(transcript).not.toContain("BEGIN_OPENCLAW_INTERNAL_CONTEXT");
+        expect(transcript).not.toContain("SECRET_ONE");
+      });
+
+      it("omits the complete internal turn for split-block context-only array in chunked retention and keeps surrounding turns", () => {
+        const messages = [
+          { role: "user", content: "Turn 1 genuine user prompt" },
+          { role: "assistant", content: "Turn 1 genuine assistant reply" },
+          { role: "user", content: splitBlockContextOnly },
+          { role: "assistant", content: "Internal coordination reply" },
+          { role: "user", content: "Turn 3 genuine user prompt" },
+          { role: "assistant", content: "Turn 3 genuine assistant reply" },
+        ];
+        const result = prepareRetentionTranscript(messages, baseConfig, true);
+        expect(result).not.toBeNull();
+        const transcript = result!.transcript;
+        expect(transcript).toContain("Turn 1 genuine user prompt");
+        expect(transcript).toContain("Turn 1 genuine assistant reply");
+        expect(transcript).toContain("Turn 3 genuine user prompt");
+        expect(transcript).toContain("Turn 3 genuine assistant reply");
+        expect(transcript).not.toContain("Internal coordination reply");
+        expect(transcript).not.toContain("BEGIN_OPENCLAW_INTERNAL_CONTEXT");
+        expect(transcript).not.toContain("SECRET_ONE");
+        expect(transcript).not.toContain("SECRET_TWO");
+      });
+    });
   });
 });
 

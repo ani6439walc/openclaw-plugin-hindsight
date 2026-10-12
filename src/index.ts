@@ -1939,6 +1939,32 @@ export function isUserTurnInitiator(
 }
 
 /**
+ * Check whether message content carries protected OpenClaw internal runtime
+ * context markers (<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>> or <<<END_OPENCLAW_INTERNAL_CONTEXT>>>).
+ */
+function hasProtectedRuntimeContext(
+  content: OpenClawMessage["content"],
+): boolean {
+  if (typeof content === "string") {
+    return (
+      content.includes("<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>") ||
+      content.includes("<<<END_OPENCLAW_INTERNAL_CONTEXT>>>")
+    );
+  }
+  if (Array.isArray(content)) {
+    return content.some(
+      (b: any) =>
+        b &&
+        typeof b === "object" &&
+        typeof b.text === "string" &&
+        (b.text.includes("<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>") ||
+          b.text.includes("<<<END_OPENCLAW_INTERNAL_CONTEXT>>>")),
+    );
+  }
+  return false;
+}
+
+/**
  * Check whether a message represents an internal, subagent, or operational turn
  * that should not be retained in long-term memory.
  *
@@ -1955,11 +1981,9 @@ export function isInternalOrOperationalTurnMessage(
   if (msg.trigger === "subagent") return true;
   if (isInternalProvenance(msg.inputProvenance ?? msg.provenance)) return true;
 
-  const rawText = extractMessageText(msg.content);
-  if (!rawText.trim()) {
-    return false;
-  }
+  const hadProtectedContext = hasProtectedRuntimeContext(msg.content);
 
+  const rawText = extractMessageText(msg.content);
   const cleaned = stripRuntimeEnvelope(
     stripInlineTimestampPrefix(
       stripMetadataEnvelopes(rawText.replace(/^(?:System:.*\n)+\n?/, "")),
@@ -1969,7 +1993,7 @@ export function isInternalOrOperationalTurnMessage(
   if (!cleaned) {
     // Nothing user-authored survives. Only a protected runtime-context block
     // makes that internal; a metadata-only message keeps its prior handling.
-    return INTERNAL_CONTEXT_MARKER_RE.test(rawText);
+    return hadProtectedContext;
   }
 
   return isEphemeralOperationalText(cleaned);
