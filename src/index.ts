@@ -1,5 +1,8 @@
 import type {
+  InputProvenance,
   MoltbotPluginAPI,
+  OpenClawMessage,
+  OpenClawMessageContentBlock,
   PluginConfig,
   PluginHookAgentContext,
   PluginToolContext,
@@ -1007,12 +1010,124 @@ export function extractSenderIdFromText(text: string): string | undefined {
   return undefined;
 }
 
+const INTERNAL_RUNTIME_CONTEXT_RE =
+  /(?:^|\r?\n)?<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>[\s\S]*?(?:<<<END_OPENCLAW_INTERNAL_CONTEXT>>>(?:\r?\n|$)?|$)/g;
+
+/**
+ * Strip OpenClaw's protected internal runtime context blocks
+ * (<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>> ... <<<END_OPENCLAW_INTERNAL_CONTEXT>>>).
+ */
+export function stripInternalRuntimeContext(content: string): string {
+  if (!content || typeof content !== "string") return content;
+  if (
+    !content.includes("<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>") &&
+    !content.includes("<<<END_OPENCLAW_INTERNAL_CONTEXT>>>")
+  ) {
+    return content;
+  }
+  return content.replace(INTERNAL_RUNTIME_CONTEXT_RE, "\n").trim();
+}
+
+/**
+ * Sanitize protected OpenClaw internal runtime context blocks across adjacent
+ * text blocks within a message.
+ *
+ * OpenClaw message content can arrive as an array of content blocks where the
+ * opening delimiter (<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>) is in one block and
+ * the closing delimiter (<<<END_OPENCLAW_INTERNAL_CONTEXT>>>) is in a subsequent block.
+ * This function tracks context-block state across blocks so that:
+ * 1. Surrounding genuine user text before and after the delimiters is preserved.
+ * 2. Intermediate payload text and delimiters are stripped across all affected blocks.
+ * 3. The original ordering of text and toolCall blocks is preserved.
+ */
+export function sanitizeInternalRuntimeContextFromBlocks<T = any>(
+  blocks: T[],
+): T[] {
+  if (!Array.isArray(blocks) || blocks.length === 0) {
+    return blocks;
+  }
+
+  const hasMarker = blocks.some(
+    (b: any) =>
+      b &&
+      typeof b === "object" &&
+      typeof b.text === "string" &&
+      (b.text.includes("<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>") ||
+        b.text.includes("<<<END_OPENCLAW_INTERNAL_CONTEXT>>>")),
+  );
+  if (!hasMarker) {
+    return blocks;
+  }
+
+  let inContext = false;
+  const result: T[] = [];
+
+  for (const block of blocks) {
+    if (
+      !block ||
+      typeof block !== "object" ||
+      ((block as any).type !== "text" && (block as any).type !== undefined) ||
+      typeof (block as any).text !== "string"
+    ) {
+      result.push(block);
+      continue;
+    }
+
+    let remaining = (block as any).text as string;
+    let resultText = "";
+
+    while (remaining.length > 0) {
+      if (!inContext) {
+        const beginMatch = remaining.match(
+          /(?:^|\r?\n)?<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/i,
+        );
+        if (!beginMatch || beginMatch.index === undefined) {
+          const orphanEndMatch = remaining.match(
+            /<<<END_OPENCLAW_INTERNAL_CONTEXT>>>(?:\r?\n|$)?/i,
+          );
+          if (orphanEndMatch && orphanEndMatch.index !== undefined) {
+            resultText += remaining.slice(0, orphanEndMatch.index);
+            remaining = remaining.slice(
+              orphanEndMatch.index + orphanEndMatch[0].length,
+            );
+            continue;
+          }
+          resultText += remaining;
+          remaining = "";
+        } else {
+          resultText += remaining.slice(0, beginMatch.index);
+          remaining = remaining.slice(beginMatch.index + beginMatch[0].length);
+          inContext = true;
+        }
+      } else {
+        const endMatch = remaining.match(
+          /<<<END_OPENCLAW_INTERNAL_CONTEXT>>>(?:\r?\n|$)?/i,
+        );
+        if (!endMatch || endMatch.index === undefined) {
+          remaining = "";
+        } else {
+          remaining = remaining.slice(endMatch.index + endMatch[0].length);
+          inContext = false;
+        }
+      }
+    }
+
+    result.push({
+      ...block,
+      text: resultText,
+    });
+  }
+
+  return result;
+}
+
 /**
  * Strip OpenClaw sender/conversation metadata envelopes from message content.
  * These blocks are injected by OpenClaw but are noise for memory storage and recall.
  */
 export function stripMetadataEnvelopes(content: string): string {
   if (!content) return content;
+  content = stripInternalRuntimeContext(content);
   const blocks = findInboundMetaBlocks(content);
   if (blocks.length > 0) {
     const parts: string[] = [];
@@ -1110,6 +1225,8 @@ export function extractRecallQuery(
     /^\s*conversation info\s*\(untrusted metadata\)/i,
     /^\s*\(untrusted metadata\)/i,
     /^\s*system:/i,
+    /^\s*\[Subagent Context\]/i,
+    /^\s*\[Inter-session message\]/i,
   ];
   const isMetadata = (s: string) =>
     METADATA_PATTERNS.some((p) => p.test(s)) ||
@@ -1127,7 +1244,8 @@ export function extractRecallQuery(
     !recallQuery ||
     typeof recallQuery !== "string" ||
     recallQuery.trim().length < 5 ||
-    isMetadata(recallQuery)
+    isMetadata(recallQuery) ||
+    isEphemeralOperationalText(recallQuery)
   ) {
     recallQuery = prompt;
     // Strip metadata envelopes from prompt too, then check if anything useful remains
@@ -1152,6 +1270,10 @@ export function extractRecallQuery(
       "",
     );
 
+    if (isMetadata(cleaned) || isEphemeralOperationalText(cleaned)) {
+      return null;
+    }
+
     // Extract message after [ChannelName ...] envelope header
     const envelopeMatch = cleaned.match(
       /\[[A-Z][A-Za-z]*(?:\s[^\]]+)?\]\s*([\s\S]+)$/,
@@ -1173,7 +1295,13 @@ export function extractRecallQuery(
   }
 
   const trimmed = recallQuery.trim();
-  if (trimmed.length < 5 || isMetadata(trimmed)) return null;
+  if (
+    trimmed.length < 5 ||
+    isMetadata(trimmed) ||
+    isEphemeralOperationalText(trimmed)
+  ) {
+    return null;
+  }
   return trimmed;
 }
 
@@ -1699,21 +1827,237 @@ export function getIdentitySkipReason(
   return { resolvedCtx, reason: undefined };
 }
 
+// OpenClaw-generated operational/session-bootstrap prefixes. These are not
+// user-authored content, so they should not create recall/retain entries.
+const OPERATIONAL_TEXT_PATTERNS: readonly RegExp[] = [
+  /^A new session was started via \/(?:new|reset)\./i,
+  /^Based on this conversation, generate a short 1-2/i,
+  /^This (?:script|task|job|workflow) updates .* index/i,
+  /^\[Subagent Context\]/i,
+  /^Every subagent in this batch has now settled/i,
+  /^Your prior run ended while waiting for descendant subagent completions/i,
+  /^All pending descendants for that run have now settled/i,
+  /^Child completion results:/i,
+  /^\[Inter-session message\]/i,
+];
+
+const INTERNAL_CONTEXT_MARKER_RE = /<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/i;
+
 export function isEphemeralOperationalText(text: string | undefined): boolean {
   if (!text || typeof text !== "string") return false;
 
-  const normalized = text
+  let normalized = text
     .replace(/\[role:\s*[^\]]+\]\s*/gi, "")
     .replace(/\[[a-z]+:end\]\s*/gi, "")
     .trim();
 
-  // These prefixes are OpenClaw-generated operational/session-bootstrap strings,
-  // not user-authored content, so they should not create recall/retain entries.
-  return [
-    /^A new session was started via \/(?:new|reset)\./i,
-    /^Based on this conversation, generate a short 1-2/i,
-    /^This (?:script|task|job|workflow) updates .* index/i,
-  ].some((pattern) => pattern.test(normalized));
+  // A protected runtime-context block is classified by what surrounds it, not
+  // by its mere presence: a block on its own is internal, but genuine user text
+  // that merely carries one must still be recalled/retained.
+  if (INTERNAL_CONTEXT_MARKER_RE.test(normalized)) {
+    normalized = stripInternalRuntimeContext(normalized).trim();
+    if (!normalized) return true;
+  }
+
+  return OPERATIONAL_TEXT_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+/**
+ * Whether input provenance marks an OpenClaw inter-session message or an
+ * internal subagent coordination/settlement event.
+ */
+function isInternalProvenance(prov: InputProvenance | undefined): boolean {
+  if (!prov) return false;
+  return (
+    prov.kind === "inter_session" ||
+    prov.sourceChannel === "internal" ||
+    prov.sourceRole === "subagent" ||
+    prov.sourceTool === "subagent_settle" ||
+    prov.sourceTool === "subagent_announce"
+  );
+}
+
+/**
+ * Check whether a hook context represents an OpenClaw inter-session
+ * message or internal subagent coordination/settlement wake event.
+ */
+export function isInterSessionInternalEvent(
+  ctx?: PluginHookAgentContext,
+): boolean {
+  if (ctx?.trigger === "subagent") return true;
+  return isInternalProvenance(ctx?.inputProvenance);
+}
+
+/**
+ * Extract combined text from a message content field (string or block array).
+ */
+function extractMessageText(content: OpenClawMessage["content"]): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    const sanitized = sanitizeInternalRuntimeContextFromBlocks(content);
+    return sanitized
+      .filter(
+        (block): block is OpenClawMessageContentBlock & { text: string } =>
+          !!block &&
+          typeof block === "object" &&
+          (block.type === "text" || !block.type) &&
+          typeof block.text === "string",
+      )
+      .map((block) => block.text)
+      .join("\n");
+  }
+  return "";
+}
+
+/**
+ * Determine whether a message initiates an actual user turn (as opposed to
+ * synthetic messages like tool results normalized into role:"user").
+ */
+export function isUserTurnInitiator(
+  msg: OpenClawMessage | null | undefined,
+): boolean {
+  if (!msg || msg.role !== "user") return false;
+  const content = msg.content;
+  if (typeof content === "string") return true;
+  if (Array.isArray(content)) {
+    const hasToolResult = content.some((b) => b?.type === "tool_result");
+    const hasText = content.some(
+      (b) =>
+        !!b &&
+        (b.type === "text" || !b.type) &&
+        typeof b.text === "string" &&
+        b.text.trim().length > 0,
+    );
+    if (hasToolResult && !hasText) {
+      return false;
+    }
+    return true;
+  }
+  return true;
+}
+
+/**
+ * Check whether message content carries protected OpenClaw internal runtime
+ * context markers (<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>> or <<<END_OPENCLAW_INTERNAL_CONTEXT>>>).
+ */
+function hasProtectedRuntimeContext(
+  content: OpenClawMessage["content"],
+): boolean {
+  if (typeof content === "string") {
+    return (
+      content.includes("<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>") ||
+      content.includes("<<<END_OPENCLAW_INTERNAL_CONTEXT>>>")
+    );
+  }
+  if (Array.isArray(content)) {
+    return content.some(
+      (b: any) =>
+        b &&
+        typeof b === "object" &&
+        typeof b.text === "string" &&
+        (b.text.includes("<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>") ||
+          b.text.includes("<<<END_OPENCLAW_INTERNAL_CONTEXT>>>")),
+    );
+  }
+  return false;
+}
+
+/**
+ * Check whether a message represents an internal, subagent, or operational turn
+ * that should not be retained in long-term memory.
+ *
+ * Provenance markers skip immediately. Text classification runs only after the
+ * protected runtime-context block and other envelopes are stripped, so genuine
+ * user text that merely carries such a block is kept, while context-only and
+ * residual settlement messages are discarded.
+ */
+export function isInternalOrOperationalTurnMessage(
+  msg: OpenClawMessage | null | undefined,
+): boolean {
+  if (!msg || typeof msg !== "object") return false;
+
+  if (msg.trigger === "subagent") return true;
+  if (isInternalProvenance(msg.inputProvenance ?? msg.provenance)) return true;
+
+  const hadProtectedContext = hasProtectedRuntimeContext(msg.content);
+
+  const rawText = extractMessageText(msg.content);
+  const cleaned = stripRuntimeEnvelope(
+    stripInlineTimestampPrefix(
+      stripMetadataEnvelopes(rawText.replace(/^(?:System:.*\n)+\n?/, "")),
+    ),
+  ).trim();
+
+  if (!cleaned) {
+    // Nothing user-authored survives. Only a protected runtime-context block
+    // makes that internal; a metadata-only message keeps its prior handling.
+    return hadProtectedContext;
+  }
+
+  return isEphemeralOperationalText(cleaned);
+}
+
+/**
+ * Filter internal, subagent, or operational turns at the message/turn boundary.
+ * For any turn whose initiating user message is internal/operational, the entire
+ * turn (the user message and any subsequent assistant/tool messages) is omitted,
+ * while preserving neighboring genuine user turns.
+ */
+export function filterInternalAndOperationalTurns<T extends OpenClawMessage>(
+  messages: T[],
+): T[] {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return [];
+  }
+
+  interface MessageTurn {
+    userMsg: T | null;
+    messages: T[];
+  }
+
+  const turns: MessageTurn[] = [];
+  let currentTurn: MessageTurn | null = null;
+
+  for (const msg of messages) {
+    if (isUserTurnInitiator(msg)) {
+      if (currentTurn) {
+        turns.push(currentTurn);
+      }
+      currentTurn = {
+        userMsg: msg,
+        messages: [msg],
+      };
+    } else {
+      if (!currentTurn) {
+        currentTurn = {
+          userMsg: null,
+          messages: [msg],
+        };
+      } else {
+        currentTurn.messages.push(msg);
+      }
+    }
+  }
+  if (currentTurn) {
+    turns.push(currentTurn);
+  }
+
+  const keptMessages: T[] = [];
+  for (const turn of turns) {
+    if (turn.userMsg && isInternalOrOperationalTurnMessage(turn.userMsg)) {
+      continue;
+    }
+    keptMessages.push(...turn.messages);
+  }
+
+  const hasGenuineUserMsg = keptMessages.some((m) => isUserTurnInitiator(m));
+  if (!hasGenuineUserMsg) {
+    return [];
+  }
+
+  return keptMessages;
 }
 
 function setCappedMapValue<K, V>(map: Map<K, V>, key: K, value: V): void {
@@ -2967,6 +3311,13 @@ export default function (api: MoltbotPluginAPI) {
       "before_dispatch",
       async (event: any, ctx?: PluginHookAgentContext) => {
         try {
+          if (isInterSessionInternalEvent(ctx)) {
+            debug(
+              "[Hindsight] before_dispatch skipping inter-session / internal subagent event",
+            );
+            return;
+          }
+
           const sessionKey =
             ctx?.sessionKey ??
             (typeof event?.sessionKey === "string"
@@ -3054,6 +3405,14 @@ export default function (api: MoltbotPluginAPI) {
         const cancelRecall = () =>
           finishRecall({ state: "cancelled", reason: "service_stopped" });
         try {
+          // Check if this is an inter-session / subagent completion internal event
+          if (isInterSessionInternalEvent(ctx)) {
+            debug(
+              `[Hindsight] Skipping recall: inter-session / internal subagent event (${ctx?.inputProvenance?.sourceTool ?? ctx?.inputProvenance?.kind ?? ctx?.trigger})`,
+            );
+            return;
+          }
+
           // Check if this provider is excluded
           if (
             ctx?.messageProvider &&
@@ -3500,6 +3859,14 @@ ${memoriesFormatted}
           return;
         }
 
+        // Check if this is an inter-session / subagent completion internal event
+        if (isInterSessionInternalEvent(effectiveCtx)) {
+          debug(
+            `[Hindsight Hook] Skipping retain: inter-session / internal subagent event (${effectiveCtx?.inputProvenance?.sourceTool ?? effectiveCtx?.inputProvenance?.kind ?? effectiveCtx?.trigger})`,
+          );
+          return;
+        }
+
         // Session pattern filtering
         const agentEndSessionKey = effectiveCtx?.sessionKey;
         if (agentEndSessionKey) {
@@ -3604,6 +3971,18 @@ ${memoriesFormatted}
         if (pluginConfig.autoRetain === false) {
           debug("[Hindsight Hook] autoRetain is disabled, skipping retention");
           return;
+        }
+
+        if (!force) {
+          const lastUserMsg = [...eventMessages]
+            .reverse()
+            .find(isUserTurnInitiator);
+          if (lastUserMsg && isInternalOrOperationalTurnMessage(lastUserMsg)) {
+            debug(
+              "[Hindsight Hook] Skipping retain: current turn is an internal / operational message",
+            );
+            return;
+          }
         }
 
         // Chunked retention: skip non-Nth turns and use a sliding window when firing
@@ -3997,13 +4376,13 @@ export function prepareRetentionTranscript(
 
   let targetMessages: any[];
   if (retainFullWindow) {
-    // Chunked retention: retain the full sliding window (already sliced by caller)
-    targetMessages = messages;
+    // Chunked retention: retain the full sliding window (omitting internal turns)
+    targetMessages = filterInternalAndOperationalTurns(messages);
   } else {
     // Default: retain only the last turn (user message + assistant responses)
     let lastUserIdx = -1;
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "user") {
+      if (messages[i]?.role === "user" && isUserTurnInitiator(messages[i])) {
         lastUserIdx = i;
         break;
       }
@@ -4011,7 +4390,17 @@ export function prepareRetentionTranscript(
     if (lastUserIdx === -1) {
       return null; // No user message found in turn
     }
-    targetMessages = messages.slice(lastUserIdx);
+    const lastTurnMessages = messages.slice(lastUserIdx);
+    const filteredLastTurn =
+      filterInternalAndOperationalTurns(lastTurnMessages);
+    if (filteredLastTurn.length === 0) {
+      return null;
+    }
+    targetMessages = filteredLastTurn;
+  }
+
+  if (!targetMessages || targetMessages.length === 0) {
+    return null;
   }
 
   const format = pluginConfig.retainFormat ?? "json";
@@ -4053,7 +4442,8 @@ export function prepareRetentionTranscript(
     if (typeof msg.content === "string") {
       content = msg.content;
     } else if (Array.isArray(msg.content)) {
-      content = msg.content
+      const sanitized = sanitizeInternalRuntimeContextFromBlocks(msg.content);
+      content = sanitized
         .filter((block: any) => block.type === "text")
         .map((block: any) => block.text)
         .join("\n");
@@ -4181,8 +4571,9 @@ function extractStructuredBlocks(content: any, role: string): any[] {
   }
   if (!Array.isArray(content)) return [];
 
+  const sanitizedContent = sanitizeInternalRuntimeContextFromBlocks(content);
   const blocks: any[] = [];
-  for (const block of content) {
+  for (const block of sanitizedContent) {
     if (!block || typeof block !== "object") continue;
     const blockType = block.type;
 
@@ -4271,7 +4662,11 @@ export function sliceLastTurnsByUserBoundary(
   let startIndex = -1;
 
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.role === "user" && hasRealTextContent(messages[i])) {
+    if (
+      messages[i]?.role === "user" &&
+      hasRealTextContent(messages[i]) &&
+      !isInternalOrOperationalTurnMessage(messages[i])
+    ) {
       userTurnsSeen += 1;
       if (userTurnsSeen >= turns) {
         startIndex = i;

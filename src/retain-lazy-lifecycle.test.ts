@@ -136,3 +136,266 @@ it("retains the persisted turn when service initialization fails", async () => {
   await failed;
   expect(new RetainQueue({ filePath: queuePath }).size()).toBe(1);
 });
+
+it("skips retention when inputProvenance indicates a subagent or inter-session event", async () => {
+  await hook(event, {
+    ...ctx,
+    inputProvenance: {
+      kind: "inter_session",
+      sourceChannel: "internal",
+      sourceTool: "subagent_settle",
+    },
+  });
+  expect(new RetainQueue({ filePath: queuePath }).size()).toBe(0);
+});
+
+it("skips retention for unclassified settlement text in default JSON mode", async () => {
+  await hook(
+    {
+      success: true,
+      messages: [
+        {
+          role: "user",
+          content:
+            "[Subagent Context] Every subagent in this batch has now settled, including its descendants.\nChild completion results:\n- subagent-1: success",
+        },
+        {
+          role: "assistant",
+          content: "Understood, processing child results.",
+        },
+      ],
+    },
+    ctx,
+  );
+  expect(new RetainQueue({ filePath: queuePath }).size()).toBe(0);
+});
+
+it("omits provenance-skipped internal turns from subsequent chunked-retain windows while preserving normal turns", async () => {
+  let chunkedHook: Parameters<MoltbotPluginAPI["on"]>[1];
+  const module = await import("./index.js");
+  module.default({
+    config: {
+      plugins: {
+        entries: {
+          hindsight: {
+            config: {
+              hindsightApiUrl: "http://localhost:8888",
+              agentBankMap: { main: "test-bank" },
+              dynamicBankId: true,
+              autoRetain: true,
+              retainEveryNTurns: 2,
+              retainOverlapTurns: 0,
+              retainQueuePath: queuePath,
+              logLevel: "off",
+            },
+          },
+        },
+      },
+    },
+    on: (event, handler) => {
+      if (event === "agent_end") chunkedHook = handler;
+    },
+    registerService: vi.fn(),
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  });
+
+  const chunkedSessionKey = "agent:main:discord:channel:chunked-test";
+  const chunkedCtx = { ...ctx, sessionKey: chunkedSessionKey };
+
+  // Turn 1: normal user
+  await chunkedHook!(
+    {
+      success: true,
+      messages: [
+        { role: "user", content: "Turn 1 normal prompt" },
+        { role: "assistant", content: "Turn 1 response" },
+      ],
+    },
+    chunkedCtx,
+  );
+  expect(new RetainQueue({ filePath: queuePath }).size()).toBe(0);
+
+  // Turn 2: internal subagent completion
+  await chunkedHook!(
+    {
+      success: true,
+      messages: [
+        { role: "user", content: "Turn 1 normal prompt" },
+        { role: "assistant", content: "Turn 1 response" },
+        {
+          role: "user",
+          content:
+            "[Subagent Context] Every subagent in this batch has now settled",
+          inputProvenance: {
+            kind: "inter_session",
+            sourceChannel: "internal",
+            sourceTool: "subagent_settle",
+          },
+        },
+        { role: "assistant", content: "Acknowledged subagent completion" },
+      ],
+    },
+    {
+      ...chunkedCtx,
+      inputProvenance: {
+        kind: "inter_session",
+        sourceChannel: "internal",
+        sourceTool: "subagent_settle",
+      },
+    },
+  );
+  expect(new RetainQueue({ filePath: queuePath }).size()).toBe(0);
+
+  // Turn 3: normal user (second genuine turn, triggers chunked retain)
+  await chunkedHook!(
+    {
+      success: true,
+      messages: [
+        { role: "user", content: "Turn 1 normal prompt" },
+        { role: "assistant", content: "Turn 1 response" },
+        {
+          role: "user",
+          content:
+            "[Subagent Context] Every subagent in this batch has now settled",
+        },
+        { role: "assistant", content: "Acknowledged subagent completion" },
+        { role: "user", content: "Turn 3 normal prompt" },
+        { role: "assistant", content: "Turn 3 response" },
+      ],
+    },
+    chunkedCtx,
+  );
+
+  const queue = new RetainQueue({ filePath: queuePath });
+  expect(queue.size()).toBe(1);
+  const item = queue.peek()[0];
+  expect(item.content).toContain("Turn 1 normal prompt");
+  expect(item.content).toContain("Turn 3 normal prompt");
+  expect(item.content).not.toContain("Subagent Context");
+  expect(item.content).not.toContain("Acknowledged subagent completion");
+});
+
+it("retains genuine user text that carries a protected runtime context block and strips the block", async () => {
+  await hook(
+    {
+      success: true,
+      messages: [
+        {
+          role: "user",
+          content:
+            'Remember that I prefer PostgreSQL.\n<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nConversation data: "[Inter-session message] isUser=false"\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>',
+        },
+        {
+          role: "assistant",
+          content: "Understood, PostgreSQL preference noted.",
+        },
+      ],
+    },
+    ctx,
+  );
+
+  const queue = new RetainQueue({ filePath: queuePath });
+  expect(queue.size()).toBe(1);
+  const item = queue.peek()[0];
+  expect(item.content).toContain("Remember that I prefer PostgreSQL.");
+  expect(item.content).toContain("Understood, PostgreSQL preference noted.");
+  expect(item.content).not.toContain("BEGIN_OPENCLAW_INTERNAL_CONTEXT");
+  expect(item.content).not.toContain("Inter-session message");
+});
+
+it("retains genuine user text across adjacent text blocks in default JSON mode and strips split context block", async () => {
+  await hook(
+    {
+      success: true,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Remember PostgreSQL.\n<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nSECRET_ONE",
+            },
+            {
+              type: "text",
+              text: "SECRET_TWO\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>\nUse UTC timestamps.",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: "Understood, PostgreSQL and UTC timestamps.",
+        },
+      ],
+    },
+    ctx,
+  );
+
+  const queue = new RetainQueue({ filePath: queuePath });
+  expect(queue.size()).toBe(1);
+  const item = queue.peek()[0];
+  expect(item.content).toContain("Remember PostgreSQL.");
+  expect(item.content).toContain("Use UTC timestamps.");
+  expect(item.content).toContain("Understood, PostgreSQL and UTC timestamps.");
+  expect(item.content).not.toContain("BEGIN_OPENCLAW_INTERNAL_CONTEXT");
+  expect(item.content).not.toContain("END_OPENCLAW_INTERNAL_CONTEXT");
+  expect(item.content).not.toContain("SECRET_ONE");
+  expect(item.content).not.toContain("SECRET_TWO");
+});
+
+it("queues no retain for one-block context-only array in agent_end path", async () => {
+  await hook(
+    {
+      success: true,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nSECRET_ONE\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: "Internal coordination reply",
+        },
+      ],
+    },
+    ctx,
+  );
+
+  const queue = new RetainQueue({ filePath: queuePath });
+  expect(queue.size()).toBe(0);
+});
+
+it("queues no retain for split-block context-only array in agent_end path", async () => {
+  await hook(
+    {
+      success: true,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nSECRET_ONE",
+            },
+            {
+              type: "text",
+              text: "SECRET_TWO\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: "Internal coordination reply",
+        },
+      ],
+    },
+    ctx,
+  );
+
+  const queue = new RetainQueue({ filePath: queuePath });
+  expect(queue.size()).toBe(0);
+});

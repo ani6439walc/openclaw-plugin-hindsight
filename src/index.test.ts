@@ -29,6 +29,7 @@ import {
   resolveAndCacheIdentity,
   getIdentitySkipReason,
   isEphemeralOperationalText,
+  isInterSessionInternalEvent,
   deriveBankId,
   resolveBankIdForKnowledgeTools,
   normalizeRetainTags,
@@ -36,6 +37,7 @@ import {
   stripInlineRetainTags,
   stripInlineTimestampPrefix,
   stripRuntimeEnvelope,
+  stripInternalRuntimeContext,
   stripMetadataEnvelopes,
   extractSenderIdFromText,
   configureSenderPrefixStripping,
@@ -43,6 +45,9 @@ import {
   scopeClient,
   formatHookPerf,
   DEFAULT_RETAIN_CONTEXT,
+  filterInternalAndOperationalTurns,
+  isInternalOrOperationalTurnMessage,
+  isUserTurnInitiator,
 } from "./index.js";
 import type { PluginConfig, MemoryResult, MoltbotPluginAPI } from "./types.js";
 
@@ -1260,6 +1265,606 @@ describe("prepareRetentionTranscript", () => {
     expect(result!.transcript).not.toContain("provider:");
     expect(result!.transcript).toContain("[role: user]\nping\n[user:end]");
   });
+
+  it("returns null for unclassified settlement text in default JSON format", () => {
+    const settleMessages = [
+      {
+        role: "user",
+        content:
+          "[Subagent Context] Every subagent in this batch has now settled, including its descendants.\nChild completion results:\n1. Task done",
+      },
+      {
+        role: "assistant",
+        content: "Understood, processing child results.",
+      },
+    ];
+    const result = prepareRetentionTranscript(settleMessages, baseConfig);
+    expect(result).toBeNull();
+  });
+
+  it("returns null for unclassified settlement text in text-only JSON mode", () => {
+    const config: PluginConfig = { ...baseConfig, retainToolCalls: false };
+    const settleMessages = [
+      {
+        role: "user",
+        content:
+          "Child completion results:\n1. Task: research\nStatus: success",
+      },
+      {
+        role: "assistant",
+        content: "Acknowledged.",
+      },
+    ];
+    const result = prepareRetentionTranscript(settleMessages, config);
+    expect(result).toBeNull();
+  });
+
+  it("returns null for unclassified settlement text in text format", () => {
+    const config: PluginConfig = { ...baseConfig, retainFormat: "text" };
+    const settleMessages = [
+      {
+        role: "user",
+        content: "[Subagent Context] Worker finished work successfully.",
+      },
+      {
+        role: "assistant",
+        content: "OK.",
+      },
+    ];
+    const result = prepareRetentionTranscript(settleMessages, config);
+    expect(result).toBeNull();
+  });
+
+  it("omits internal subagent turn from a chunked retention window while retaining normal turns before and after", () => {
+    const messages = [
+      { role: "user", content: "Can you help me design a database schema?" },
+      { role: "assistant", content: "Sure, let's start with the user entity." },
+      {
+        role: "user",
+        content:
+          "[Subagent Context] Every subagent in this batch has now settled, including its descendants.\nChild completion results:\n- subagent-1: success",
+      },
+      { role: "assistant", content: "Received subagent status report." },
+      { role: "user", content: "Great, now add an indexing strategy." },
+      {
+        role: "assistant",
+        content: "We should create a B-tree index on user_id.",
+      },
+    ];
+    const result = prepareRetentionTranscript(messages, baseConfig, true);
+    expect(result).not.toBeNull();
+    const transcript = result!.transcript;
+    expect(transcript).toContain("database schema");
+    expect(transcript).toContain("user entity");
+    expect(transcript).toContain("indexing strategy");
+    expect(transcript).toContain("B-tree index");
+    expect(transcript).not.toContain("Subagent Context");
+    expect(transcript).not.toContain("Child completion results");
+    expect(transcript).not.toContain("Received subagent status report");
+  });
+
+  it("omits provenance-skipped internal turns from a chunked retention window", () => {
+    const messages = [
+      { role: "user", content: "Initial user request." },
+      { role: "assistant", content: "Initial assistant reply." },
+      {
+        role: "user",
+        content: "Internal coordinate message",
+        inputProvenance: {
+          kind: "inter_session",
+          sourceChannel: "internal",
+          sourceTool: "subagent_settle",
+        },
+      },
+      { role: "assistant", content: "Internal coordinate reply." },
+      { role: "user", content: "Subsequent user follow-up." },
+      { role: "assistant", content: "Subsequent assistant follow-up." },
+    ];
+    const result = prepareRetentionTranscript(messages, baseConfig, true);
+    expect(result).not.toBeNull();
+    const transcript = result!.transcript;
+    expect(transcript).toContain("Initial user request.");
+    expect(transcript).toContain("Subsequent user follow-up.");
+    expect(transcript).not.toContain("Internal coordinate message");
+    expect(transcript).not.toContain("Internal coordinate reply.");
+  });
+
+  it("returns null if all turns in a chunked window are internal", () => {
+    const messages = [
+      {
+        role: "user",
+        content: "[Subagent Context] Batch 1 settled",
+      },
+      { role: "assistant", content: "Ack 1" },
+      {
+        role: "user",
+        content: "Child completion results: all settled",
+      },
+      { role: "assistant", content: "Ack 2" },
+    ];
+    const result = prepareRetentionTranscript(messages, baseConfig, true);
+    expect(result).toBeNull();
+  });
+
+  describe("runtime context block alongside genuine user text", () => {
+    const textBeforeContext = [
+      "Remember that I prefer PostgreSQL.",
+      "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>",
+      'Conversation data: "[Inter-session message] isUser=false"',
+      "<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+    ].join("\n");
+
+    const textAfterContext = [
+      "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>",
+      'Conversation data: "[Inter-session message] isUser=false"',
+      "<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+      "Please summarize the meeting notes.",
+    ].join("\n");
+
+    const blockArrayContent = [
+      {
+        type: "text",
+        text: "Always format responses in markdown.\n<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nruntime metadata\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+      },
+    ];
+
+    it("retains genuine user text before context block in structured JSON mode", () => {
+      const messages = [
+        { role: "user", content: textBeforeContext },
+        { role: "assistant", content: "Noted, I will use PostgreSQL." },
+      ];
+      const result = prepareRetentionTranscript(messages, baseConfig);
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result!.transcript);
+      expect(parsed).toEqual([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Remember that I prefer PostgreSQL." },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Noted, I will use PostgreSQL." }],
+        },
+      ]);
+      expect(result!.transcript).not.toContain(
+        "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+      );
+    });
+
+    it("retains genuine user text after context block in structured JSON mode", () => {
+      const messages = [
+        { role: "user", content: textAfterContext },
+        { role: "assistant", content: "Here is the meeting summary." },
+      ];
+      const result = prepareRetentionTranscript(messages, baseConfig);
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result!.transcript);
+      expect(parsed).toEqual([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Please summarize the meeting notes." },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Here is the meeting summary." }],
+        },
+      ]);
+      expect(result!.transcript).not.toContain(
+        "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+      );
+    });
+
+    it("retains block-array genuine user text alongside context block in structured JSON mode", () => {
+      const messages = [
+        { role: "user", content: blockArrayContent },
+        { role: "assistant", content: "Understood, will use markdown." },
+      ];
+      const result = prepareRetentionTranscript(messages, baseConfig);
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result!.transcript);
+      expect(parsed).toEqual([
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Always format responses in markdown.",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Understood, will use markdown." }],
+        },
+      ]);
+      expect(result!.transcript).not.toContain(
+        "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+      );
+    });
+
+    it("retains genuine user text around context block in text-only JSON mode", () => {
+      const config: PluginConfig = { ...baseConfig, retainToolCalls: false };
+      const messagesBefore = [
+        { role: "user", content: textBeforeContext },
+        { role: "assistant", content: "Noted, using PostgreSQL." },
+      ];
+      const resultBefore = prepareRetentionTranscript(messagesBefore, config);
+      expect(resultBefore).not.toBeNull();
+      expect(JSON.parse(resultBefore!.transcript)).toEqual([
+        { role: "user", content: "Remember that I prefer PostgreSQL." },
+        { role: "assistant", content: "Noted, using PostgreSQL." },
+      ]);
+      expect(resultBefore!.transcript).not.toContain(
+        "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+      );
+
+      const messagesAfter = [
+        { role: "user", content: textAfterContext },
+        { role: "assistant", content: "Meeting summary ready." },
+      ];
+      const resultAfter = prepareRetentionTranscript(messagesAfter, config);
+      expect(resultAfter).not.toBeNull();
+      expect(JSON.parse(resultAfter!.transcript)).toEqual([
+        { role: "user", content: "Please summarize the meeting notes." },
+        { role: "assistant", content: "Meeting summary ready." },
+      ]);
+      expect(resultAfter!.transcript).not.toContain(
+        "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+      );
+    });
+
+    it("retains genuine user text around context block in text format", () => {
+      const config: PluginConfig = { ...baseConfig, retainFormat: "text" };
+      const messagesBefore = [
+        { role: "user", content: textBeforeContext },
+        { role: "assistant", content: "Noted, using PostgreSQL." },
+      ];
+      const resultBefore = prepareRetentionTranscript(messagesBefore, config);
+      expect(resultBefore).not.toBeNull();
+      expect(resultBefore!.transcript).toContain(
+        "Remember that I prefer PostgreSQL.",
+      );
+      expect(resultBefore!.transcript).toContain("Noted, using PostgreSQL.");
+      expect(resultBefore!.transcript).not.toContain(
+        "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+      );
+
+      const messagesAfter = [
+        { role: "user", content: textAfterContext },
+        { role: "assistant", content: "Meeting summary ready." },
+      ];
+      const resultAfter = prepareRetentionTranscript(messagesAfter, config);
+      expect(resultAfter).not.toBeNull();
+      expect(resultAfter!.transcript).toContain(
+        "Please summarize the meeting notes.",
+      );
+      expect(resultAfter!.transcript).toContain("Meeting summary ready.");
+      expect(resultAfter!.transcript).not.toContain(
+        "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+      );
+    });
+
+    it("preserves turns with runtime context blocks in a later chunked retention window while stripping metadata", () => {
+      const messages = [
+        { role: "user", content: "First turn: Hello!" },
+        { role: "assistant", content: "Hello there!" },
+        {
+          role: "user",
+          content: textBeforeContext,
+        },
+        { role: "assistant", content: "Noted, I will use PostgreSQL." },
+        {
+          role: "user",
+          content: blockArrayContent,
+        },
+        { role: "assistant", content: "Understood, markdown enabled." },
+        { role: "user", content: "Final turn: goodbye!" },
+        { role: "assistant", content: "Goodbye!" },
+      ];
+      const result = prepareRetentionTranscript(messages, baseConfig, true);
+      expect(result).not.toBeNull();
+      const transcript = result!.transcript;
+      expect(transcript).toContain("First turn: Hello!");
+      expect(transcript).toContain("Remember that I prefer PostgreSQL.");
+      expect(transcript).toContain("Always format responses in markdown.");
+      expect(transcript).toContain("Final turn: goodbye!");
+      expect(transcript).not.toContain("BEGIN_OPENCLAW_INTERNAL_CONTEXT");
+      expect(transcript).not.toContain("Inter-session message");
+      expect(transcript).not.toContain("runtime metadata");
+    });
+
+    describe("protected runtime context split across adjacent text blocks", () => {
+      const splitContextBlocks = [
+        {
+          type: "text",
+          text: "Remember PostgreSQL.\n<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nSECRET_ONE",
+        },
+        {
+          type: "text",
+          text: "SECRET_TWO\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>\nUse UTC timestamps.",
+        },
+      ];
+
+      it("sanitizes context split across adjacent text blocks in default structured JSON for a single turn", () => {
+        const messages = [
+          { role: "user", content: splitContextBlocks },
+          {
+            role: "assistant",
+            content: "Understood, PostgreSQL and UTC timestamps.",
+          },
+        ];
+        const result = prepareRetentionTranscript(messages, baseConfig);
+        expect(result).not.toBeNull();
+        const parsed = JSON.parse(result!.transcript);
+        expect(parsed).toEqual([
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Remember PostgreSQL." },
+              { type: "text", text: "Use UTC timestamps." },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: "Understood, PostgreSQL and UTC timestamps.",
+              },
+            ],
+          },
+        ]);
+        expect(result!.transcript).toContain("Remember PostgreSQL.");
+        expect(result!.transcript).toContain("Use UTC timestamps.");
+        expect(result!.transcript).not.toContain(
+          "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain(
+          "END_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain("SECRET_ONE");
+        expect(result!.transcript).not.toContain("SECRET_TWO");
+      });
+
+      it("sanitizes context split across adjacent text blocks in a later chunked retention window (structured JSON)", () => {
+        const messages = [
+          { role: "user", content: "First turn: Hello database." },
+          { role: "assistant", content: "Hello! Ready for queries." },
+          { role: "user", content: splitContextBlocks },
+          {
+            role: "assistant",
+            content: "Understood, PostgreSQL and UTC timestamps.",
+          },
+          { role: "user", content: "Third turn: and use JSONB columns." },
+          { role: "assistant", content: "Will use JSONB columns." },
+        ];
+        const result = prepareRetentionTranscript(messages, baseConfig, true);
+        expect(result).not.toBeNull();
+        const parsed = JSON.parse(result!.transcript);
+        expect(parsed).toHaveLength(6);
+        expect(parsed[2]).toEqual({
+          role: "user",
+          content: [
+            { type: "text", text: "Remember PostgreSQL." },
+            { type: "text", text: "Use UTC timestamps." },
+          ],
+        });
+        expect(result!.transcript).toContain("Remember PostgreSQL.");
+        expect(result!.transcript).toContain("Use UTC timestamps.");
+        expect(result!.transcript).toContain(
+          "Third turn: and use JSONB columns.",
+        );
+        expect(result!.transcript).not.toContain(
+          "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain(
+          "END_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain("SECRET_ONE");
+        expect(result!.transcript).not.toContain("SECRET_TWO");
+      });
+
+      it("sanitizes context split across adjacent text blocks in text-only JSON mode", () => {
+        const config: PluginConfig = { ...baseConfig, retainToolCalls: false };
+        const messages = [
+          { role: "user", content: splitContextBlocks },
+          {
+            role: "assistant",
+            content: "Understood, PostgreSQL and UTC timestamps.",
+          },
+        ];
+        const result = prepareRetentionTranscript(messages, config);
+        expect(result).not.toBeNull();
+        const parsed = JSON.parse(result!.transcript);
+        expect(parsed).toEqual([
+          {
+            role: "user",
+            content: "Remember PostgreSQL.\nUse UTC timestamps.",
+          },
+          {
+            role: "assistant",
+            content: "Understood, PostgreSQL and UTC timestamps.",
+          },
+        ]);
+        expect(result!.transcript).toContain("Remember PostgreSQL.");
+        expect(result!.transcript).toContain("Use UTC timestamps.");
+        expect(result!.transcript).not.toContain(
+          "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain(
+          "END_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain("SECRET_ONE");
+        expect(result!.transcript).not.toContain("SECRET_TWO");
+      });
+
+      it("sanitizes context split across adjacent text blocks in text format", () => {
+        const config: PluginConfig = { ...baseConfig, retainFormat: "text" };
+        const messages = [
+          { role: "user", content: splitContextBlocks },
+          {
+            role: "assistant",
+            content: "Understood, PostgreSQL and UTC timestamps.",
+          },
+        ];
+        const result = prepareRetentionTranscript(messages, config);
+        expect(result).not.toBeNull();
+        expect(result!.transcript).toContain("Remember PostgreSQL.");
+        expect(result!.transcript).toContain("Use UTC timestamps.");
+        expect(result!.transcript).toContain(
+          "Understood, PostgreSQL and UTC timestamps.",
+        );
+        expect(result!.transcript).not.toContain(
+          "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain(
+          "END_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain("SECRET_ONE");
+        expect(result!.transcript).not.toContain("SECRET_TWO");
+      });
+
+      it("preserves tool call block ordering when context is sanitized across adjacent text blocks in assistant messages", () => {
+        const assistantBlocks = [
+          {
+            type: "text",
+            text: "Analyzing requirements.\n<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nINTERNAL_DECISION",
+          },
+          {
+            type: "toolCall",
+            id: "call_123",
+            name: "query_schema",
+            arguments: { table: "users" },
+          },
+          {
+            type: "text",
+            text: "INTERNAL_OBSERVATION\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>\nProceeding with migration.",
+          },
+        ];
+        const messages = [
+          { role: "user", content: "Please run migration." },
+          { role: "assistant", content: assistantBlocks },
+        ];
+        const result = prepareRetentionTranscript(messages, baseConfig);
+        expect(result).not.toBeNull();
+        const parsed = JSON.parse(result!.transcript);
+        expect(parsed).toEqual([
+          {
+            role: "user",
+            content: [{ type: "text", text: "Please run migration." }],
+          },
+          {
+            role: "assistant",
+            content: [
+              { type: "text", text: "Analyzing requirements." },
+              {
+                type: "tool_use",
+                id: "call_123",
+                name: "query_schema",
+                input: { table: "users" },
+              },
+              { type: "text", text: "Proceeding with migration." },
+            ],
+          },
+        ]);
+        expect(result!.transcript).toContain("Analyzing requirements.");
+        expect(result!.transcript).toContain("Proceeding with migration.");
+        expect(result!.transcript).not.toContain(
+          "BEGIN_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain(
+          "END_OPENCLAW_INTERNAL_CONTEXT",
+        );
+        expect(result!.transcript).not.toContain("INTERNAL_DECISION");
+        expect(result!.transcript).not.toContain("INTERNAL_OBSERVATION");
+      });
+    });
+
+    describe("context-only block arrays", () => {
+      const oneBlockContextOnly = [
+        {
+          type: "text",
+          text: "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nSECRET_ONE\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+        },
+      ];
+
+      const splitBlockContextOnly = [
+        {
+          type: "text",
+          text: "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nSECRET_ONE",
+        },
+        {
+          type: "text",
+          text: "SECRET_TWO\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+        },
+      ];
+
+      it("returns null for one-block context-only array in default current-turn retention", () => {
+        const messages = [
+          { role: "user", content: oneBlockContextOnly },
+          { role: "assistant", content: "Internal coordination reply" },
+        ];
+        const result = prepareRetentionTranscript(messages, baseConfig);
+        expect(result).toBeNull();
+      });
+
+      it("returns null for split-block context-only array in default current-turn retention", () => {
+        const messages = [
+          { role: "user", content: splitBlockContextOnly },
+          { role: "assistant", content: "Internal coordination reply" },
+        ];
+        const result = prepareRetentionTranscript(messages, baseConfig);
+        expect(result).toBeNull();
+      });
+
+      it("omits the complete internal turn for one-block context-only array in chunked retention and keeps surrounding turns", () => {
+        const messages = [
+          { role: "user", content: "Turn 1 genuine user prompt" },
+          { role: "assistant", content: "Turn 1 genuine assistant reply" },
+          { role: "user", content: oneBlockContextOnly },
+          { role: "assistant", content: "Internal coordination reply" },
+          { role: "user", content: "Turn 3 genuine user prompt" },
+          { role: "assistant", content: "Turn 3 genuine assistant reply" },
+        ];
+        const result = prepareRetentionTranscript(messages, baseConfig, true);
+        expect(result).not.toBeNull();
+        const transcript = result!.transcript;
+        expect(transcript).toContain("Turn 1 genuine user prompt");
+        expect(transcript).toContain("Turn 1 genuine assistant reply");
+        expect(transcript).toContain("Turn 3 genuine user prompt");
+        expect(transcript).toContain("Turn 3 genuine assistant reply");
+        expect(transcript).not.toContain("Internal coordination reply");
+        expect(transcript).not.toContain("BEGIN_OPENCLAW_INTERNAL_CONTEXT");
+        expect(transcript).not.toContain("SECRET_ONE");
+      });
+
+      it("omits the complete internal turn for split-block context-only array in chunked retention and keeps surrounding turns", () => {
+        const messages = [
+          { role: "user", content: "Turn 1 genuine user prompt" },
+          { role: "assistant", content: "Turn 1 genuine assistant reply" },
+          { role: "user", content: splitBlockContextOnly },
+          { role: "assistant", content: "Internal coordination reply" },
+          { role: "user", content: "Turn 3 genuine user prompt" },
+          { role: "assistant", content: "Turn 3 genuine assistant reply" },
+        ];
+        const result = prepareRetentionTranscript(messages, baseConfig, true);
+        expect(result).not.toBeNull();
+        const transcript = result!.transcript;
+        expect(transcript).toContain("Turn 1 genuine user prompt");
+        expect(transcript).toContain("Turn 1 genuine assistant reply");
+        expect(transcript).toContain("Turn 3 genuine user prompt");
+        expect(transcript).toContain("Turn 3 genuine assistant reply");
+        expect(transcript).not.toContain("Internal coordination reply");
+        expect(transcript).not.toContain("BEGIN_OPENCLAW_INTERNAL_CONTEXT");
+        expect(transcript).not.toContain("SECRET_ONE");
+        expect(transcript).not.toContain("SECRET_TWO");
+      });
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1357,6 +1962,44 @@ describe("sliceLastTurnsByUserBoundary", () => {
     // 2 real user turns. Should start at message 0 (first real user).
     const result = sliceLastTurnsByUserBoundary(messages, 2);
     expect(result).toEqual(messages);
+  });
+
+  it("skips internal subagent user turns when counting turns for window slicing", () => {
+    const messages = [
+      { role: "user", content: "Turn 1 genuine user" },
+      { role: "assistant", content: "Turn 1 genuine assistant" },
+      {
+        role: "user",
+        content:
+          "[Subagent Context] Every subagent in this batch has now settled",
+      },
+      { role: "assistant", content: "Turn 2 subagent ack" },
+      { role: "user", content: "Turn 3 genuine user" },
+      { role: "assistant", content: "Turn 3 genuine assistant" },
+    ];
+
+    // Asking for 2 turns should look past the internal subagent turn to include Turn 1
+    const result = sliceLastTurnsByUserBoundary(messages, 2);
+    expect(result).toEqual(messages);
+  });
+
+  it("counts user turns that carry protected runtime context alongside genuine text", () => {
+    const messages = [
+      { role: "user", content: "Turn 1 user" },
+      { role: "assistant", content: "Turn 1 assistant" },
+      {
+        role: "user",
+        content:
+          "Turn 2 user with pref\n<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nmeta\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+      },
+      { role: "assistant", content: "Turn 2 assistant" },
+      { role: "user", content: "Turn 3 user" },
+      { role: "assistant", content: "Turn 3 assistant" },
+    ];
+
+    // Asking for 2 turns should slice Turn 2 and Turn 3 (starting at index 2)
+    const result = sliceLastTurnsByUserBoundary(messages, 2);
+    expect(result).toEqual(messages.slice(2));
   });
 });
 
@@ -1736,6 +2379,72 @@ describe("session identity helpers", () => {
     expect(
       isEphemeralOperationalText("Tell me what I said about dark mode."),
     ).toBe(false);
+  });
+
+  it("detects subagent completion and inter-session operational text", () => {
+    expect(
+      isEphemeralOperationalText(
+        "[Subagent Context] Every subagent in this batch has now settled, including its descendants.",
+      ),
+    ).toBe(true);
+    expect(
+      isEphemeralOperationalText(
+        "Every subagent in this batch has now settled, including its descendants.",
+      ),
+    ).toBe(true);
+    expect(
+      isEphemeralOperationalText(
+        "Child completion results:\n\n1. Child task...",
+      ),
+    ).toBe(true);
+    expect(
+      isEphemeralOperationalText(
+        "[Inter-session message] sourceSession=agent:librarian:subagent:123 sourceChannel=internal sourceTool=subagent_settle isUser=false",
+      ),
+    ).toBe(true);
+    expect(
+      isEphemeralOperationalText(
+        "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nConversation data:\n[Inter-session message]\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+      ),
+    ).toBe(true);
+  });
+
+  it("isInterSessionInternalEvent identifies inter-session and subagent triggers", () => {
+    expect(
+      isInterSessionInternalEvent({
+        inputProvenance: {
+          kind: "inter_session",
+          sourceTool: "subagent_settle",
+          sourceChannel: "internal",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isInterSessionInternalEvent({
+        inputProvenance: {
+          sourceTool: "subagent_announce",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isInterSessionInternalEvent({
+        inputProvenance: {
+          sourceRole: "subagent",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isInterSessionInternalEvent({
+        trigger: "subagent",
+      }),
+    ).toBe(true);
+    expect(
+      isInterSessionInternalEvent({
+        senderId: "user-1",
+        messageProvider: "telegram",
+      }),
+    ).toBe(false);
+    expect(isInterSessionInternalEvent(undefined)).toBe(false);
   });
 });
 
@@ -2767,6 +3476,45 @@ describe("inbound metadata blocks (marker and legacy forms)", () => {
     expect(extractRecallQuery(undefined, text)).toBe(
       "what did I say about postgres?",
     );
+  });
+
+  it("strips protected internal runtime context blocks", () => {
+    const text = [
+      "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>",
+      'Conversation data: "[Inter-session message] isUser=false"',
+      "<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+      "",
+      "what was the decision?",
+    ].join("\n");
+    expect(stripInternalRuntimeContext(text)).toBe("what was the decision?");
+    expect(stripMetadataEnvelopes(text)).toBe("what was the decision?");
+  });
+
+  it("strips truncated internal runtime context blocks without closing delimiter", () => {
+    const text = [
+      "what was the decision?",
+      "",
+      "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>",
+      'Conversation data: "[Inter-session message] truncated...',
+    ].join("\n");
+    expect(stripInternalRuntimeContext(text)).toBe("what was the decision?");
+    expect(stripMetadataEnvelopes(text)).toBe("what was the decision?");
+  });
+
+  it("rejects subagent settlement notifications as recall queries", () => {
+    const settlePrompt = [
+      "[Subagent Context] Every subagent in this batch has now settled, including its descendants.",
+      "Child completion results:",
+      "1. Child task: geopolitical news",
+    ].join("\n");
+    expect(extractRecallQuery(undefined, settlePrompt)).toBeNull();
+
+    const interSessionPrompt = [
+      "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>",
+      "[Inter-session message] sourceTool=subagent_settle isUser=false",
+      "<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+    ].join("\n");
+    expect(extractRecallQuery(undefined, interSessionPrompt)).toBeNull();
   });
 });
 
