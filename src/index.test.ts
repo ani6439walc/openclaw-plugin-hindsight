@@ -45,6 +45,9 @@ import {
   scopeClient,
   formatHookPerf,
   DEFAULT_RETAIN_CONTEXT,
+  filterInternalAndOperationalTurns,
+  isInternalOrOperationalTurnMessage,
+  isUserTurnInitiator,
 } from "./index.js";
 import type { PluginConfig, MemoryResult, MoltbotPluginAPI } from "./types.js";
 
@@ -1262,6 +1265,124 @@ describe("prepareRetentionTranscript", () => {
     expect(result!.transcript).not.toContain("provider:");
     expect(result!.transcript).toContain("[role: user]\nping\n[user:end]");
   });
+
+  it("returns null for unclassified settlement text in default JSON format", () => {
+    const settleMessages = [
+      {
+        role: "user",
+        content:
+          "[Subagent Context] Every subagent in this batch has now settled, including its descendants.\nChild completion results:\n1. Task done",
+      },
+      {
+        role: "assistant",
+        content: "Understood, processing child results.",
+      },
+    ];
+    const result = prepareRetentionTranscript(settleMessages, baseConfig);
+    expect(result).toBeNull();
+  });
+
+  it("returns null for unclassified settlement text in text-only JSON mode", () => {
+    const config: PluginConfig = { ...baseConfig, retainToolCalls: false };
+    const settleMessages = [
+      {
+        role: "user",
+        content:
+          "Child completion results:\n1. Task: research\nStatus: success",
+      },
+      {
+        role: "assistant",
+        content: "Acknowledged.",
+      },
+    ];
+    const result = prepareRetentionTranscript(settleMessages, config);
+    expect(result).toBeNull();
+  });
+
+  it("returns null for unclassified settlement text in text format", () => {
+    const config: PluginConfig = { ...baseConfig, retainFormat: "text" };
+    const settleMessages = [
+      {
+        role: "user",
+        content:
+          "[Subagent Context] Worker finished work successfully.",
+      },
+      {
+        role: "assistant",
+        content: "OK.",
+      },
+    ];
+    const result = prepareRetentionTranscript(settleMessages, config);
+    expect(result).toBeNull();
+  });
+
+  it("omits internal subagent turn from a chunked retention window while retaining normal turns before and after", () => {
+    const messages = [
+      { role: "user", content: "Can you help me design a database schema?" },
+      { role: "assistant", content: "Sure, let's start with the user entity." },
+      {
+        role: "user",
+        content:
+          "[Subagent Context] Every subagent in this batch has now settled, including its descendants.\nChild completion results:\n- subagent-1: success",
+      },
+      { role: "assistant", content: "Received subagent status report." },
+      { role: "user", content: "Great, now add an indexing strategy." },
+      { role: "assistant", content: "We should create a B-tree index on user_id." },
+    ];
+    const result = prepareRetentionTranscript(messages, baseConfig, true);
+    expect(result).not.toBeNull();
+    const transcript = result!.transcript;
+    expect(transcript).toContain("database schema");
+    expect(transcript).toContain("user entity");
+    expect(transcript).toContain("indexing strategy");
+    expect(transcript).toContain("B-tree index");
+    expect(transcript).not.toContain("Subagent Context");
+    expect(transcript).not.toContain("Child completion results");
+    expect(transcript).not.toContain("Received subagent status report");
+  });
+
+  it("omits provenance-skipped internal turns from a chunked retention window", () => {
+    const messages = [
+      { role: "user", content: "Initial user request." },
+      { role: "assistant", content: "Initial assistant reply." },
+      {
+        role: "user",
+        content: "Internal coordinate message",
+        inputProvenance: {
+          kind: "inter_session",
+          sourceChannel: "internal",
+          sourceTool: "subagent_settle",
+        },
+      },
+      { role: "assistant", content: "Internal coordinate reply." },
+      { role: "user", content: "Subsequent user follow-up." },
+      { role: "assistant", content: "Subsequent assistant follow-up." },
+    ];
+    const result = prepareRetentionTranscript(messages, baseConfig, true);
+    expect(result).not.toBeNull();
+    const transcript = result!.transcript;
+    expect(transcript).toContain("Initial user request.");
+    expect(transcript).toContain("Subsequent user follow-up.");
+    expect(transcript).not.toContain("Internal coordinate message");
+    expect(transcript).not.toContain("Internal coordinate reply.");
+  });
+
+  it("returns null if all turns in a chunked window are internal", () => {
+    const messages = [
+      {
+        role: "user",
+        content: "[Subagent Context] Batch 1 settled",
+      },
+      { role: "assistant", content: "Ack 1" },
+      {
+        role: "user",
+        content: "Child completion results: all settled",
+      },
+      { role: "assistant", content: "Ack 2" },
+    ];
+    const result = prepareRetentionTranscript(messages, baseConfig, true);
+    expect(result).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1357,6 +1478,24 @@ describe("sliceLastTurnsByUserBoundary", () => {
       },
     ];
     // 2 real user turns. Should start at message 0 (first real user).
+    const result = sliceLastTurnsByUserBoundary(messages, 2);
+    expect(result).toEqual(messages);
+  });
+
+  it("skips internal subagent user turns when counting turns for window slicing", () => {
+    const messages = [
+      { role: "user", content: "Turn 1 genuine user" },
+      { role: "assistant", content: "Turn 1 genuine assistant" },
+      {
+        role: "user",
+        content: "[Subagent Context] Every subagent in this batch has now settled",
+      },
+      { role: "assistant", content: "Turn 2 subagent ack" },
+      { role: "user", content: "Turn 3 genuine user" },
+      { role: "assistant", content: "Turn 3 genuine assistant" },
+    ];
+
+    // Asking for 2 turns should look past the internal subagent turn to include Turn 1
     const result = sliceLastTurnsByUserBoundary(messages, 2);
     expect(result).toEqual(messages);
   });

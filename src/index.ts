@@ -1768,6 +1768,162 @@ export function isInterSessionInternalEvent(
   );
 }
 
+/**
+ * Extract combined text from a message content field (string or block array).
+ */
+function extractMessageText(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .filter(
+        (block): block is { type?: string; text?: string } =>
+          !!block && typeof block === "object",
+      )
+      .filter(
+        (block) =>
+          (block.type === "text" || !block.type) &&
+          typeof block.text === "string",
+      )
+      .map((block) => block.text || "")
+      .join("\n");
+  }
+  return "";
+}
+
+/**
+ * Determine whether a message initiates an actual user turn (as opposed to
+ * synthetic messages like tool results normalized into role:"user").
+ */
+export function isUserTurnInitiator(msg: any): boolean {
+  if (!msg || msg.role !== "user") return false;
+  const content = msg.content;
+  if (typeof content === "string") return true;
+  if (Array.isArray(content)) {
+    const hasToolResult = content.some((b: any) => b?.type === "tool_result");
+    const hasText = content.some(
+      (b: any) =>
+        b &&
+        (b.type === "text" || !b.type) &&
+        typeof b.text === "string" &&
+        b.text.trim().length > 0,
+    );
+    if (hasToolResult && !hasText) {
+      return false;
+    }
+    return true;
+  }
+  return true;
+}
+
+/**
+ * Check whether a message represents an internal, subagent, or operational turn
+ * that should not be retained in long-term memory.
+ */
+export function isInternalOrOperationalTurnMessage(msg: any): boolean {
+  if (!msg || typeof msg !== "object") return false;
+
+  if (msg.trigger === "subagent") return true;
+
+  const prov = msg.inputProvenance ?? msg.provenance;
+  if (prov) {
+    if (
+      prov.kind === "inter_session" ||
+      prov.sourceChannel === "internal" ||
+      prov.sourceRole === "subagent" ||
+      prov.sourceTool === "subagent_settle" ||
+      prov.sourceTool === "subagent_announce"
+    ) {
+      return true;
+    }
+  }
+
+  const rawText = extractMessageText(msg.content);
+  if (!rawText.trim()) {
+    return false;
+  }
+
+  if (isEphemeralOperationalText(rawText)) {
+    return true;
+  }
+
+  let cleaned = rawText.replace(/^(?:System:.*\n)+\n?/, "");
+  cleaned = stripRuntimeEnvelope(
+    stripInlineTimestampPrefix(stripMetadataEnvelopes(cleaned)),
+  ).trim();
+
+  if (isEphemeralOperationalText(cleaned)) {
+    return true;
+  }
+
+  const withoutInternal = stripInternalRuntimeContext(cleaned).trim();
+  if (withoutInternal.length === 0 && rawText.trim().length > 0) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Filter internal, subagent, or operational turns at the message/turn boundary.
+ * For any turn whose initiating user message is internal/operational, the entire
+ * turn (the user message and any subsequent assistant/tool messages) is omitted,
+ * while preserving neighboring genuine user turns.
+ */
+export function filterInternalAndOperationalTurns(messages: any[]): any[] {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return [];
+  }
+
+  interface MessageTurn {
+    userMsg: any | null;
+    messages: any[];
+  }
+
+  const turns: MessageTurn[] = [];
+  let currentTurn: MessageTurn | null = null;
+
+  for (const msg of messages) {
+    if (isUserTurnInitiator(msg)) {
+      if (currentTurn) {
+        turns.push(currentTurn);
+      }
+      currentTurn = {
+        userMsg: msg,
+        messages: [msg],
+      };
+    } else {
+      if (!currentTurn) {
+        currentTurn = {
+          userMsg: null,
+          messages: [msg],
+        };
+      } else {
+        currentTurn.messages.push(msg);
+      }
+    }
+  }
+  if (currentTurn) {
+    turns.push(currentTurn);
+  }
+
+  const keptMessages: any[] = [];
+  for (const turn of turns) {
+    if (turn.userMsg && isInternalOrOperationalTurnMessage(turn.userMsg)) {
+      continue;
+    }
+    keptMessages.push(...turn.messages);
+  }
+
+  const hasGenuineUserMsg = keptMessages.some((m) => isUserTurnInitiator(m));
+  if (!hasGenuineUserMsg) {
+    return [];
+  }
+
+  return keptMessages;
+}
+
 function setCappedMapValue<K, V>(map: Map<K, V>, key: K, value: V): void {
   // FIFO cap, not LRU: updating an existing key keeps its original insertion order.
   map.set(key, value);
@@ -3681,6 +3837,18 @@ ${memoriesFormatted}
           return;
         }
 
+        if (!force) {
+          const lastUserMsg = [...eventMessages]
+            .reverse()
+            .find(isUserTurnInitiator);
+          if (lastUserMsg && isInternalOrOperationalTurnMessage(lastUserMsg)) {
+            debug(
+              "[Hindsight Hook] Skipping retain: current turn is an internal / operational message",
+            );
+            return;
+          }
+        }
+
         // Chunked retention: skip non-Nth turns and use a sliding window when firing
         const retainEveryN = pluginConfig.retainEveryNTurns ?? 1;
         const allMessages = eventMessages;
@@ -4072,21 +4240,39 @@ export function prepareRetentionTranscript(
 
   let targetMessages: any[];
   if (retainFullWindow) {
-    // Chunked retention: retain the full sliding window (already sliced by caller)
-    targetMessages = messages;
+    // Chunked retention: retain the full sliding window (omitting internal turns)
+    targetMessages = filterInternalAndOperationalTurns(messages);
   } else {
     // Default: retain only the last turn (user message + assistant responses)
     let lastUserIdx = -1;
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "user") {
+      if (messages[i]?.role === "user" && isUserTurnInitiator(messages[i])) {
         lastUserIdx = i;
         break;
       }
     }
     if (lastUserIdx === -1) {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i]?.role === "user") {
+          lastUserIdx = i;
+          break;
+        }
+      }
+    }
+    if (lastUserIdx === -1) {
       return null; // No user message found in turn
     }
-    targetMessages = messages.slice(lastUserIdx);
+    const lastTurnMessages = messages.slice(lastUserIdx);
+    const filteredLastTurn =
+      filterInternalAndOperationalTurns(lastTurnMessages);
+    if (filteredLastTurn.length === 0) {
+      return null;
+    }
+    targetMessages = filteredLastTurn;
+  }
+
+  if (!targetMessages || targetMessages.length === 0) {
+    return null;
   }
 
   const format = pluginConfig.retainFormat ?? "json";
@@ -4346,7 +4532,11 @@ export function sliceLastTurnsByUserBoundary(
   let startIndex = -1;
 
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.role === "user" && hasRealTextContent(messages[i])) {
+    if (
+      messages[i]?.role === "user" &&
+      hasRealTextContent(messages[i]) &&
+      !isInternalOrOperationalTurnMessage(messages[i])
+    ) {
       userTurnsSeen += 1;
       if (userTurnsSeen >= turns) {
         startIndex = i;
