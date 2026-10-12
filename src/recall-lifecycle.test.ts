@@ -396,4 +396,34 @@ describe("automatic recall service lifecycle", () => {
     if (mode === "absent-registration-api")
       expect(emit).toHaveBeenCalledTimes(2);
   });
+
+  it("skips recall when inputProvenance indicates an inter-session or subagent event", async () => {
+    const recall = vi.spyOn(HindsightClient.prototype, "recall");
+    const result = await hooks.get("before_prompt_build")!(event, {
+      ...ctx,
+      inputProvenance: {
+        kind: "inter_session",
+        sourceChannel: "internal",
+        sourceTool: "subagent_settle",
+      },
+    });
+    expect(result).toBeUndefined();
+    expect(recall).not.toHaveBeenCalled();
+  });
+
+  it("skips recall when prompt is a subagent completion event even without inputProvenance", async () => {
+    const recall = vi.spyOn(HindsightClient.prototype, "recall");
+    const subagentEvent = {
+      rawMessage: undefined,
+      prompt: [
+        "[Subagent Context] Every subagent in this batch has now settled, including its descendants.",
+        "Child completion results:",
+        "1. Child task: research crypto news",
+      ].join("\n"),
+      messages: [],
+    };
+    const result = await hooks.get("before_prompt_build")!(subagentEvent, ctx);
+    expect(result).toBeUndefined();
+    expect(recall).not.toHaveBeenCalled();
+  });
 });

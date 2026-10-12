@@ -1007,12 +1007,25 @@ export function extractSenderIdFromText(text: string): string | undefined {
   return undefined;
 }
 
+const INTERNAL_RUNTIME_CONTEXT_RE =
+  /(?:^|\r?\n)?<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>[\s\S]*?(?:<<<END_OPENCLAW_INTERNAL_CONTEXT>>>(?:\r?\n|$)?|$)/g;
+
+/**
+ * Strip OpenClaw's protected internal runtime context blocks
+ * (<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>> ... <<<END_OPENCLAW_INTERNAL_CONTEXT>>>).
+ */
+export function stripInternalRuntimeContext(content: string): string {
+  if (!content) return content;
+  return content.replace(INTERNAL_RUNTIME_CONTEXT_RE, "\n").trim();
+}
+
 /**
  * Strip OpenClaw sender/conversation metadata envelopes from message content.
  * These blocks are injected by OpenClaw but are noise for memory storage and recall.
  */
 export function stripMetadataEnvelopes(content: string): string {
   if (!content) return content;
+  content = stripInternalRuntimeContext(content);
   const blocks = findInboundMetaBlocks(content);
   if (blocks.length > 0) {
     const parts: string[] = [];
@@ -1110,6 +1123,8 @@ export function extractRecallQuery(
     /^\s*conversation info\s*\(untrusted metadata\)/i,
     /^\s*\(untrusted metadata\)/i,
     /^\s*system:/i,
+    /^\s*\[Subagent Context\]/i,
+    /^\s*\[Inter-session message\]/i,
   ];
   const isMetadata = (s: string) =>
     METADATA_PATTERNS.some((p) => p.test(s)) ||
@@ -1127,7 +1142,8 @@ export function extractRecallQuery(
     !recallQuery ||
     typeof recallQuery !== "string" ||
     recallQuery.trim().length < 5 ||
-    isMetadata(recallQuery)
+    isMetadata(recallQuery) ||
+    isEphemeralOperationalText(recallQuery)
   ) {
     recallQuery = prompt;
     // Strip metadata envelopes from prompt too, then check if anything useful remains
@@ -1152,6 +1168,10 @@ export function extractRecallQuery(
       "",
     );
 
+    if (isMetadata(cleaned) || isEphemeralOperationalText(cleaned)) {
+      return null;
+    }
+
     // Extract message after [ChannelName ...] envelope header
     const envelopeMatch = cleaned.match(
       /\[[A-Z][A-Za-z]*(?:\s[^\]]+)?\]\s*([\s\S]+)$/,
@@ -1173,7 +1193,13 @@ export function extractRecallQuery(
   }
 
   const trimmed = recallQuery.trim();
-  if (trimmed.length < 5 || isMetadata(trimmed)) return null;
+  if (
+    trimmed.length < 5 ||
+    isMetadata(trimmed) ||
+    isEphemeralOperationalText(trimmed)
+  ) {
+    return null;
+  }
   return trimmed;
 }
 
@@ -1713,7 +1739,33 @@ export function isEphemeralOperationalText(text: string | undefined): boolean {
     /^A new session was started via \/(?:new|reset)\./i,
     /^Based on this conversation, generate a short 1-2/i,
     /^This (?:script|task|job|workflow) updates .* index/i,
+    /^\[Subagent Context\]/i,
+    /^Every subagent in this batch has now settled/i,
+    /^Your prior run ended while waiting for descendant subagent completions/i,
+    /^All pending descendants for that run have now settled/i,
+    /^Child completion results:/i,
+    /^\[Inter-session message\]/i,
+    /<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/i,
   ].some((pattern) => pattern.test(normalized));
+}
+
+/**
+ * Check whether a hook context represents an OpenClaw inter-session
+ * message or internal subagent coordination/settlement wake event.
+ */
+export function isInterSessionInternalEvent(
+  ctx?: PluginHookAgentContext,
+): boolean {
+  if (ctx?.trigger === "subagent") return true;
+  const prov = ctx?.inputProvenance;
+  if (!prov) return false;
+  return (
+    prov.kind === "inter_session" ||
+    prov.sourceChannel === "internal" ||
+    prov.sourceRole === "subagent" ||
+    prov.sourceTool === "subagent_settle" ||
+    prov.sourceTool === "subagent_announce"
+  );
 }
 
 function setCappedMapValue<K, V>(map: Map<K, V>, key: K, value: V): void {
@@ -2967,6 +3019,13 @@ export default function (api: MoltbotPluginAPI) {
       "before_dispatch",
       async (event: any, ctx?: PluginHookAgentContext) => {
         try {
+          if (isInterSessionInternalEvent(ctx)) {
+            debug(
+              "[Hindsight] before_dispatch skipping inter-session / internal subagent event",
+            );
+            return;
+          }
+
           const sessionKey =
             ctx?.sessionKey ??
             (typeof event?.sessionKey === "string"
@@ -3054,6 +3113,14 @@ export default function (api: MoltbotPluginAPI) {
         const cancelRecall = () =>
           finishRecall({ state: "cancelled", reason: "service_stopped" });
         try {
+          // Check if this is an inter-session / subagent completion internal event
+          if (isInterSessionInternalEvent(ctx)) {
+            debug(
+              `[Hindsight] Skipping recall: inter-session / internal subagent event (${ctx?.inputProvenance?.sourceTool ?? ctx?.inputProvenance?.kind ?? ctx?.trigger})`,
+            );
+            return;
+          }
+
           // Check if this provider is excluded
           if (
             ctx?.messageProvider &&
@@ -3496,6 +3563,14 @@ ${memoriesFormatted}
         ) {
           debug(
             `[Hindsight] Skipping retain for excluded provider: ${effectiveCtx.messageProvider}`,
+          );
+          return;
+        }
+
+        // Check if this is an inter-session / subagent completion internal event
+        if (isInterSessionInternalEvent(effectiveCtx)) {
+          debug(
+            `[Hindsight Hook] Skipping retain: inter-session / internal subagent event (${effectiveCtx?.inputProvenance?.sourceTool ?? effectiveCtx?.inputProvenance?.kind ?? effectiveCtx?.trigger})`,
           );
           return;
         }

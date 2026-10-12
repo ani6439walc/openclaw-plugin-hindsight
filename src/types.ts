@@ -78,6 +78,17 @@ export interface PluginHookAgentContext {
   messageProvider?: string;
   channelId?: string;
   senderId?: string;
+  trigger?: string;
+  inputProvenance?: {
+    kind?: string;
+    sourceRole?: string;
+    sourceChannel?: string;
+    sourceTool?: string;
+    sourceSessionKey?: string;
+    originSessionId?: string;
+    jobId?: string;
+    runId?: string;
+  };
 }
 
 export interface PluginConfig {

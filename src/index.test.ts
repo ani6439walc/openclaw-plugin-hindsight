@@ -29,6 +29,7 @@ import {
   resolveAndCacheIdentity,
   getIdentitySkipReason,
   isEphemeralOperationalText,
+  isInterSessionInternalEvent,
   deriveBankId,
   resolveBankIdForKnowledgeTools,
   normalizeRetainTags,
@@ -36,6 +37,7 @@ import {
   stripInlineRetainTags,
   stripInlineTimestampPrefix,
   stripRuntimeEnvelope,
+  stripInternalRuntimeContext,
   stripMetadataEnvelopes,
   extractSenderIdFromText,
   configureSenderPrefixStripping,
@@ -1737,6 +1739,72 @@ describe("session identity helpers", () => {
       isEphemeralOperationalText("Tell me what I said about dark mode."),
     ).toBe(false);
   });
+
+  it("detects subagent completion and inter-session operational text", () => {
+    expect(
+      isEphemeralOperationalText(
+        "[Subagent Context] Every subagent in this batch has now settled, including its descendants.",
+      ),
+    ).toBe(true);
+    expect(
+      isEphemeralOperationalText(
+        "Every subagent in this batch has now settled, including its descendants.",
+      ),
+    ).toBe(true);
+    expect(
+      isEphemeralOperationalText(
+        "Child completion results:\n\n1. Child task...",
+      ),
+    ).toBe(true);
+    expect(
+      isEphemeralOperationalText(
+        "[Inter-session message] sourceSession=agent:librarian:subagent:123 sourceChannel=internal sourceTool=subagent_settle isUser=false",
+      ),
+    ).toBe(true);
+    expect(
+      isEphemeralOperationalText(
+        "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\nConversation data:\n[Inter-session message]\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+      ),
+    ).toBe(true);
+  });
+
+  it("isInterSessionInternalEvent identifies inter-session and subagent triggers", () => {
+    expect(
+      isInterSessionInternalEvent({
+        inputProvenance: {
+          kind: "inter_session",
+          sourceTool: "subagent_settle",
+          sourceChannel: "internal",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isInterSessionInternalEvent({
+        inputProvenance: {
+          sourceTool: "subagent_announce",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isInterSessionInternalEvent({
+        inputProvenance: {
+          sourceRole: "subagent",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isInterSessionInternalEvent({
+        trigger: "subagent",
+      }),
+    ).toBe(true);
+    expect(
+      isInterSessionInternalEvent({
+        senderId: "user-1",
+        messageProvider: "telegram",
+      }),
+    ).toBe(false);
+    expect(isInterSessionInternalEvent(undefined)).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -2767,6 +2835,34 @@ describe("inbound metadata blocks (marker and legacy forms)", () => {
     expect(extractRecallQuery(undefined, text)).toBe(
       "what did I say about postgres?",
     );
+  });
+
+  it("strips protected internal runtime context blocks", () => {
+    const text = [
+      "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>",
+      'Conversation data: "[Inter-session message] isUser=false"',
+      "<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+      "",
+      "what was the decision?",
+    ].join("\n");
+    expect(stripInternalRuntimeContext(text)).toBe("what was the decision?");
+    expect(stripMetadataEnvelopes(text)).toBe("what was the decision?");
+  });
+
+  it("rejects subagent settlement notifications as recall queries", () => {
+    const settlePrompt = [
+      "[Subagent Context] Every subagent in this batch has now settled, including its descendants.",
+      "Child completion results:",
+      "1. Child task: geopolitical news",
+    ].join("\n");
+    expect(extractRecallQuery(undefined, settlePrompt)).toBeNull();
+
+    const interSessionPrompt = [
+      "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>",
+      "[Inter-session message] sourceTool=subagent_settle isUser=false",
+      "<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
+    ].join("\n");
+    expect(extractRecallQuery(undefined, interSessionPrompt)).toBeNull();
   });
 });
 
