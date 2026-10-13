@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { REGISTERED_KNOWLEDGE_TOOL_NAMES } from "./index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const manifestPath = resolve(__dirname, "..", "openclaw.plugin.json");
@@ -69,5 +70,10 @@ describe("openclaw.plugin.json", () => {
       extraInSchema,
       "configSchema declares fields not in PluginConfig",
     ).toEqual([]);
+  });
+
+  it("declares contracts.tools matching registered knowledge tool names", () => {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    expect(manifest.contracts.tools).toEqual(REGISTERED_KNOWLEDGE_TOOL_NAMES);
   });
 });

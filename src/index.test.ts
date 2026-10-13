@@ -1,10 +1,15 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { createRequire } from "module";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
   knowledgeToolDetails,
+  KNOWLEDGE_TOOL_RENAMES,
+  REGISTERED_KNOWLEDGE_TOOL_NAMES,
+  KNOWLEDGE_PAGE_TOOL_DEFINITION,
+  PAGE_TOOL_ACTION_MAP,
+  executeKnowledgePageAction,
   normalizeAgentBankMap,
   stripMemoryTags,
   extractRecallQuery,
@@ -2893,29 +2898,32 @@ describe("defaultRetainQueuePath", () => {
   });
 });
 
-describe("getPluginConfig — enableKnowledgeTools whitelist", () => {
-  // Regression: the field was declared on PluginConfig and read at the
-  // tool-registration site, but never copied through getPluginConfig, so the
-  // runtime value was always undefined and the agent_knowledge_* tools never
-  // registered (live since the feature was first added on Apr 29 2026).
-  it("passes enableKnowledgeTools=true through when set", () => {
-    const cfg = getPluginConfig(makeApi({ enableKnowledgeTools: true }));
-    expect(cfg.enableKnowledgeTools).toBe(true);
+describe("getPluginConfig — enableTools whitelist", () => {
+  it("defaults to true when not set", () => {
+    expect(getPluginConfig(makeApi({})).enableTools).toBe(true);
   });
 
-  it("defaults to false when not set or set to a non-boolean truthy value", () => {
-    expect(getPluginConfig(makeApi({})).enableKnowledgeTools).toBe(false);
+  it("passes enableTools=true through when set", () => {
+    const cfg = getPluginConfig(makeApi({ enableTools: true }));
+    expect(cfg.enableTools).toBe(true);
+  });
+
+  it("passes enableTools=false through when set", () => {
+    expect(getPluginConfig(makeApi({ enableTools: false })).enableTools).toBe(
+      false,
+    );
+  });
+
+  it("defaults to true when set to a non-boolean truthy value", () => {
+    expect(getPluginConfig(makeApi({ enableTools: "true" })).enableTools).toBe(
+      true,
+    );
+    expect(getPluginConfig(makeApi({ enableTools: 1 })).enableTools).toBe(true);
+  });
+
+  it("honors legacy enableKnowledgeTools=false fallback", () => {
     expect(
-      getPluginConfig(makeApi({ enableKnowledgeTools: false }))
-        .enableKnowledgeTools,
-    ).toBe(false);
-    expect(
-      getPluginConfig(makeApi({ enableKnowledgeTools: "true" }))
-        .enableKnowledgeTools,
-    ).toBe(false);
-    expect(
-      getPluginConfig(makeApi({ enableKnowledgeTools: 1 }))
-        .enableKnowledgeTools,
+      getPluginConfig(makeApi({ enableKnowledgeTools: false })).enableTools,
     ).toBe(false);
   });
 });
@@ -3702,5 +3710,102 @@ describe("knowledgeToolDetails — Code Mode structured result (#4308)", () => {
     expect(knowledgeToolDetails({ content: [] })).toEqual({});
     expect(knowledgeToolDetails({})).toEqual({});
     expect(knowledgeToolDetails(undefined)).toEqual({});
+  });
+});
+
+describe("knowledge_page and memory tools registration", () => {
+  it("renames recall, reflect, and ingest to Scheme B memory names and registers knowledge_page", () => {
+    expect(KNOWLEDGE_TOOL_RENAMES.agent_knowledge_recall?.name).toBe(
+      "memory_recall",
+    );
+    expect(KNOWLEDGE_TOOL_RENAMES.agent_knowledge_reflect?.name).toBe(
+      "memory_reflect",
+    );
+    expect(KNOWLEDGE_TOOL_RENAMES.agent_knowledge_ingest?.name).toBe(
+      "memory_store",
+    );
+    expect(REGISTERED_KNOWLEDGE_TOOL_NAMES).toEqual([
+      "memory_recall",
+      "memory_reflect",
+      "memory_store",
+      "knowledge_page",
+    ]);
+  });
+
+  it("defines knowledge_page schema with action enum", () => {
+    expect(KNOWLEDGE_PAGE_TOOL_DEFINITION.name).toBe("knowledge_page");
+    expect(
+      (KNOWLEDGE_PAGE_TOOL_DEFINITION.parameters.properties.action as any).enum,
+    ).toEqual(["list", "get", "create", "update", "delete"]);
+  });
+
+  describe("executeKnowledgePageAction", () => {
+    const mockDelegate = vi.fn().mockResolvedValue({ success: true });
+    const rawToolsByName = new Map([
+      ["agent_knowledge_list_pages", { execute: mockDelegate }],
+      ["agent_knowledge_get_page", { execute: mockDelegate }],
+      ["agent_knowledge_create_page", { execute: mockDelegate }],
+      ["agent_knowledge_update_page", { execute: mockDelegate }],
+      ["agent_knowledge_delete_page", { execute: mockDelegate }],
+    ]);
+
+    beforeEach(() => {
+      mockDelegate.mockClear();
+    });
+
+    it("throws on unsupported action", async () => {
+      await expect(
+        executeKnowledgePageAction(rawToolsByName, { action: "invalid" }),
+      ).rejects.toThrow(/Unsupported action "invalid"/);
+    });
+
+    it("delegates list action without page_id", async () => {
+      const res = await executeKnowledgePageAction(rawToolsByName, {
+        action: "list",
+      });
+      expect(res).toEqual({ success: true });
+      expect(mockDelegate).toHaveBeenCalledWith({ action: "list" });
+    });
+
+    it("requires page_id for get, update, and delete", async () => {
+      await expect(
+        executeKnowledgePageAction(rawToolsByName, { action: "get" }),
+      ).rejects.toThrow(/page_id is required/);
+      await expect(
+        executeKnowledgePageAction(rawToolsByName, { action: "update" }),
+      ).rejects.toThrow(/page_id is required/);
+      await expect(
+        executeKnowledgePageAction(rawToolsByName, { action: "delete" }),
+      ).rejects.toThrow(/page_id is required/);
+    });
+
+    it("requires name and source_query for create", async () => {
+      await expect(
+        executeKnowledgePageAction(rawToolsByName, {
+          action: "create",
+          page_id: "test",
+        }),
+      ).rejects.toThrow(/name is required/);
+
+      await expect(
+        executeKnowledgePageAction(rawToolsByName, {
+          action: "create",
+          page_id: "test",
+          name: "Test",
+        }),
+      ).rejects.toThrow(/source_query is required/);
+    });
+
+    it("delegates create action when parameters are valid", async () => {
+      const params = {
+        action: "create",
+        page_id: "editorial",
+        name: "Editorial",
+        source_query: "What are the rules?",
+      };
+      const res = await executeKnowledgePageAction(rawToolsByName, params);
+      expect(res).toEqual({ success: true });
+      expect(mockDelegate).toHaveBeenCalledWith(params);
+    });
   });
 });

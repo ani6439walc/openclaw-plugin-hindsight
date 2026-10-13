@@ -18,14 +18,10 @@
   },
   "contracts": {
     "tools": [
-      "agent_knowledge_list_pages",
-      "agent_knowledge_get_page",
-      "agent_knowledge_create_page",
-      "agent_knowledge_update_page",
-      "agent_knowledge_delete_page",
-      "agent_knowledge_recall",
-      "agent_knowledge_reflect",
-      "agent_knowledge_ingest"
+      "memory_recall",
+      "memory_reflect",
+      "memory_store",
+      "knowledge_page"
     ]
   },
   "configSchema": {
@@ -376,10 +372,10 @@
         "description": "When true (default), sessions matching statelessSessionPatterns also skip recall. When false, they can recall but never retain.",
         "default": true
       },
-      "enableKnowledgeTools": {
+      "enableTools": {
         "type": "boolean",
-        "description": "Register agent_knowledge_* tools for explicit lookup, reflection, ingest, and knowledge-page management. Set automatically by the self-driving-agents CLI.",
-        "default": false
+        "description": "Register explicit knowledge and memory tools (knowledge_page, memory_recall, memory_reflect, memory_store). Defaults to true.",
+        "default": true
       },
       "senderPrefixPattern": {
         "type": "string",
@@ -601,9 +597,9 @@
       "label": "Debug Perf Timing",
       "placeholder": "false (default) — enable to log per-hook latency"
     },
-    "enableKnowledgeTools": {
-      "label": "Enable Knowledge Tools",
-      "placeholder": "false (default) — enable agent_knowledge_* tools, including reflect"
+    "enableTools": {
+      "label": "Enable Tools",
+      "placeholder": "true (default) — enable knowledge_page and memory_* tools"
     },
     "retainQueuePath": {
       "label": "Retain Queue File Path",

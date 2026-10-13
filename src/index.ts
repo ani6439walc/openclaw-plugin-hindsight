@@ -32,6 +32,126 @@ import {
   createKnowledgeTools,
   TOOL_NAMES,
 } from "@vectorize-io/hindsight-agent-sdk";
+
+export const KNOWLEDGE_TOOL_RENAMES: Record<
+  string,
+  { name: string; label?: string; description?: string }
+> = {
+  agent_knowledge_recall: {
+    name: "memory_recall",
+  },
+  agent_knowledge_reflect: {
+    name: "memory_reflect",
+    description:
+      "Generate a concise answer using the memory bank. Use for deliberate synthesis, retrospectives, or long-term preference/pattern questions; use memory_recall for ordinary lookup.",
+  },
+  agent_knowledge_ingest: {
+    name: "memory_store",
+    label: "Store a document in memory",
+  },
+};
+
+export const PAGE_TOOL_ACTION_MAP: Record<string, string> = {
+  list: "agent_knowledge_list_pages",
+  get: "agent_knowledge_get_page",
+  create: "agent_knowledge_create_page",
+  update: "agent_knowledge_update_page",
+  delete: "agent_knowledge_delete_page",
+};
+
+export const KNOWLEDGE_PAGE_TOOL_DEFINITION = {
+  name: "knowledge_page",
+  label: "Manage knowledge pages",
+  description:
+    "Manage synthesized knowledge pages (mental models). Actions: list, get, create, update, or delete. Knowledge pages auto-update over time based on conversation observations and their source_query.",
+  parameters: {
+    type: "object",
+    properties: {
+      action: {
+        type: "string",
+        enum: ["list", "get", "create", "update", "delete"],
+        description:
+          "Operation to perform: 'list' (list all pages), 'get' (read full page content), 'create' (create new page), 'update' (update page metadata), 'delete' (delete page).",
+      },
+      page_id: {
+        type: "string",
+        description:
+          "Unique page ID, lowercase with hyphens (e.g. 'user-preferences'). Required for get, create, update, and delete.",
+      },
+      name: {
+        type: "string",
+        description:
+          "Human-readable page name. Required for create, optional for update.",
+      },
+      source_query: {
+        type: "string",
+        description:
+          "The recurring question used during consolidation to rebuild the page content (e.g. 'What are the user\\'s editorial preferences?'). Required for create, optional for update.",
+      },
+    },
+    required: ["action"],
+  },
+};
+
+export const REGISTERED_KNOWLEDGE_TOOL_NAMES: readonly string[] = [
+  "memory_recall",
+  "memory_reflect",
+  "memory_store",
+  KNOWLEDGE_PAGE_TOOL_DEFINITION.name,
+];
+
+export async function executeKnowledgePageAction(
+  rawToolsByName: Map<
+    string,
+    { execute: (params: Record<string, unknown>) => Promise<unknown> }
+  >,
+  params: Record<string, unknown>,
+): Promise<unknown> {
+  const action = String(params?.action || "")
+    .toLowerCase()
+    .trim();
+  const targetToolName = PAGE_TOOL_ACTION_MAP[action];
+  if (!targetToolName) {
+    const validActions = Object.keys(PAGE_TOOL_ACTION_MAP).join(", ");
+    throw new Error(
+      `Unsupported action "${params?.action}". Supported actions: ${validActions}.`,
+    );
+  }
+
+  if (
+    action !== "list" &&
+    (!params?.page_id ||
+      typeof params.page_id !== "string" ||
+      !params.page_id.trim())
+  ) {
+    throw new Error(`page_id is required for action "${action}".`);
+  }
+
+  if (action === "create") {
+    if (
+      !params?.name ||
+      typeof params.name !== "string" ||
+      !params.name.trim()
+    ) {
+      throw new Error(`name is required for action "create".`);
+    }
+    if (
+      !params?.source_query ||
+      typeof params.source_query !== "string" ||
+      !params.source_query.trim()
+    ) {
+      throw new Error(`source_query is required for action "create".`);
+    }
+  }
+
+  const delegate = rawToolsByName.get(targetToolName);
+  if (!delegate) {
+    throw new Error(`Underlying tool ${targetToolName} not found`);
+  }
+
+  return await delegate.execute(params);
+}
+
 import {
   applyConfiguredBankDefaults,
   hasConfiguredBankDefaults,
@@ -2883,7 +3003,11 @@ export function getPluginConfig(api: MoltbotPluginAPI): PluginConfig {
       config.retainQueueFlushIntervalMs > 0
         ? config.retainQueueFlushIntervalMs
         : undefined,
-    enableKnowledgeTools: config.enableKnowledgeTools === true,
+    enableTools:
+      config.enableTools === false ||
+      (config as Record<string, unknown>).enableKnowledgeTools === false
+        ? false
+        : true,
     senderPrefixPattern,
   };
 }
@@ -4189,11 +4313,8 @@ ${memoriesFormatted}
     debug("[Hindsight] Hooks registered");
     log.info("agent hooks registered");
 
-    // Register knowledge tools (opt-in via enableKnowledgeTools config flag)
-    if (
-      pluginConfig.enableKnowledgeTools &&
-      typeof api.registerTool === "function"
-    ) {
+    // Register knowledge tools (enabled by default via enableTools config flag)
+    if (pluginConfig.enableTools && typeof api.registerTool === "function") {
       try {
         const apiUrl = (() => {
           const ext = detectExternalApi(pluginConfig);
@@ -4208,16 +4329,18 @@ ${memoriesFormatted}
         // (which lacks senderId/messageProvider) still routes to the per-user bank.
         const factory = (ctx: PluginToolContext) => {
           const resolution = resolveBankIdForKnowledgeTools(ctx, pluginConfig);
-          const tools = createKnowledgeTools({
+          const rawTools = createKnowledgeTools({
             apiUrl,
             apiToken,
             bankId: resolution.bankId,
           });
-          return tools.map((t) => ({
-            name: t.name,
-            label: t.label,
-            description: t.description,
-            parameters: t.parameters,
+          const rawToolsByName = new Map(rawTools.map((t) => [t.name, t]));
+
+          const pageTool = {
+            name: KNOWLEDGE_PAGE_TOOL_DEFINITION.name,
+            label: KNOWLEDGE_PAGE_TOOL_DEFINITION.label,
+            description: KNOWLEDGE_PAGE_TOOL_DEFINITION.description,
+            parameters: KNOWLEDGE_PAGE_TOOL_DEFINITION.parameters,
             async execute(_id: string, params: Record<string, unknown>) {
               if (resolution.identityError) {
                 return {
@@ -4227,14 +4350,45 @@ ${memoriesFormatted}
               }
               const config = currentPluginConfig || pluginConfig;
               await ensureBankDefaultsApplied(resolution.bankId, config);
-              const result = await t.execute(params);
+              const result = (await executeKnowledgePageAction(
+                rawToolsByName,
+                params,
+              )) as { content?: unknown };
               return { ...result, details: knowledgeToolDetails(result) };
             },
-          }));
+          };
+
+          const memoryTools = rawTools
+            .filter((t) => KNOWLEDGE_TOOL_RENAMES[t.name])
+            .map((t) => {
+              const override = KNOWLEDGE_TOOL_RENAMES[t.name]!;
+              return {
+                name: override.name,
+                label: override.label ?? t.label,
+                description: override.description ?? t.description,
+                parameters: t.parameters,
+                async execute(_id: string, params: Record<string, unknown>) {
+                  if (resolution.identityError) {
+                    return {
+                      content: [
+                        { type: "text", text: resolution.identityError },
+                      ],
+                      details: { error: resolution.identityError },
+                    };
+                  }
+                  const config = currentPluginConfig || pluginConfig;
+                  await ensureBankDefaultsApplied(resolution.bankId, config);
+                  const result = await t.execute(params);
+                  return { ...result, details: knowledgeToolDetails(result) };
+                },
+              };
+            });
+
+          return [...memoryTools, pageTool];
         };
 
         api.registerTool(factory, {
-          names: [...TOOL_NAMES],
+          names: [...REGISTERED_KNOWLEDGE_TOOL_NAMES],
           optional: false,
         });
         log.info("knowledge tools registered");

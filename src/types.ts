@@ -203,7 +203,7 @@ export interface PluginConfig {
   retainQueuePath?: string; // Queue base path; durable entries are stored in the adjacent .d directory. Existing JSONL is migrated and archived. Default: ~/.openclaw/plugins/hindsight/retain-queue.jsonl
   retainQueueMaxAgeMs?: number; // Max age in ms for queued items. -1 = keep forever (default: -1)
   retainQueueFlushIntervalMs?: number; // How often to attempt flushing the queue in ms. Default: 60000 (1 min)
-  enableKnowledgeTools?: boolean; // Register agent_knowledge_* tools. Default: false. Set to true by the self-driving-agents CLI.
+  enableTools?: boolean; // Register knowledge and memory tools (knowledge_page and memory_*). Default: true.
   /**
    * Regex source matching a human display-name prefix that some channels
    * prepend to user text ("Alice: today weather?"). Supply the name part only
