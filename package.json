@@ -2,7 +2,7 @@
   "name": "@ani6439walc/openclaw-plugin-hindsight",
   "displayName": "Hindsight",
   "description": "Hindsight memory plugin for OpenClaw - biomimetic long-term memory with fact extraction",
-  "version": "2026.9.9",
+  "version": "2026.10.2",
   "type": "module",
   "packageManager": "pnpm@12.8.1",
   "license": "MIT",
@@ -39,8 +39,8 @@
       "minGatewayVersion": "2026.9.9"
     },
     "build": {
-      "openclawVersion": "2026.9.9",
-      "pluginSdkVersion": "2026.9.9"
+      "openclawVersion": "2026.10.2",
+      "pluginSdkVersion": "2026.10.2"
     }
   },
   "scripts": {
@@ -60,7 +60,7 @@
     "@vectorize-io/hindsight-client": "^0.10.3"
   },
   "peerDependencies": {
-    "openclaw": "2026.9.9"
+    "openclaw": "2026.10.2"
   },
   "devDependencies": {
     "@openclaw/proxyline": "0.4.0",
