@@ -1,6 +1,6 @@
 {
-  "name": "@ani6439walc/openclaw-plugin-hindsight",
-  "displayName": "Hindsight",
+  "name": "hindsight-memory",
+  "displayName": "Hindsight Memory",
   "description": "Hindsight memory plugin for OpenClaw - biomimetic long-term memory with fact extraction",
   "version": "2026.10.2",
   "type": "module",
