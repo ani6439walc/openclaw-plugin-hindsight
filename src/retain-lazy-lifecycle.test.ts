@@ -53,7 +53,7 @@ beforeEach(async () => {
     config: {
       plugins: {
         entries: {
-          hindsight: {
+          "hindsight-memory": {
             config: {
               hindsightApiUrl: "http://localhost:8888",
               agentBankMap: { main: "test-bank" },
@@ -177,7 +177,7 @@ it("omits provenance-skipped internal turns from subsequent chunked-retain windo
     config: {
       plugins: {
         entries: {
-          hindsight: {
+          "hindsight-memory": {
             config: {
               hindsightApiUrl: "http://localhost:8888",
               agentBankMap: { main: "test-bank" },

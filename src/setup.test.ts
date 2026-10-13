@@ -121,7 +121,7 @@ describe("runNonInteractive", () => {
   let configPath: string;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "hindsight-openclaw-setup-cli-"));
+    tmpDir = await mkdtemp(join(tmpdir(), "hindsight-memory-setup-cli-"));
     configPath = join(tmpDir, "openclaw.json");
   });
 

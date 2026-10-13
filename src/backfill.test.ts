@@ -215,7 +215,7 @@ describe("backfill helpers", () => {
     const { isDirectExecution } = await import("./backfill.js");
     const dir = mkdtempSync(join(tmpdir(), "hindsight-backfill-bin-"));
     const modulePath = join(dir, "backfill.js");
-    const symlinkPath = join(dir, "hindsight-openclaw-backfill");
+    const symlinkPath = join(dir, "hindsight-memory-backfill");
     writeFileSync(modulePath, "#!/usr/bin/env node\n", "utf8");
     symlinkSync(modulePath, symlinkPath);
 

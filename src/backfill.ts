@@ -16,7 +16,7 @@ function loadPackageVersion(): string {
   }
 }
 
-const USER_AGENT = `hindsight-openclaw/${loadPackageVersion()}`;
+const USER_AGENT = `openclaw-plugin-hindsight-memory/${loadPackageVersion()}`;
 import {
   DEFAULT_RETAIN_CONTEXT,
   detectExternalApi,
@@ -69,7 +69,7 @@ interface BankRuntime {
 
 function usage(): string {
   return [
-    "Usage: hindsight-openclaw-backfill [options]",
+    "Usage: hindsight-memory-backfill [options]",
     "",
     "Options:",
     "  --openclaw-root <path>        OpenClaw root directory (default: ~/.openclaw)",

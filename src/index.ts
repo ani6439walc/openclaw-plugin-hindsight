@@ -16,6 +16,7 @@ import {
   type MinScores,
 } from "@vectorize-io/hindsight-client";
 import { emitAgentEvent } from "openclaw/plugin-sdk/agent-harness-runtime";
+import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
 import { RetainQueue } from "./retain-queue.js";
 import {
   compileSessionPatterns,
@@ -27,7 +28,6 @@ import { join } from "path";
 import * as log from "./logger.js";
 import { configureLogger, setApiLogger, stopLogger } from "./logger.js";
 import { createRequire } from "module";
-import { homedir } from "os";
 import {
   createKnowledgeTools,
   TOOL_NAMES,
@@ -77,7 +77,7 @@ function loadPackageVersion(): string {
   }
 }
 
-const USER_AGENT = `hindsight-openclaw/${loadPackageVersion()}`;
+const USER_AGENT = `openclaw-plugin-hindsight-memory/${loadPackageVersion()}`;
 
 export const DEFAULT_RETAIN_CONTEXT =
   "This content is an AI-assistant conversation transcript from OpenClaw. " +
@@ -397,10 +397,17 @@ const DEFAULT_FLUSH_INTERVAL_MS = 60_000; // 1 min
  * Service-owned timer; agent registries open producer handles without timers.
  * Initialization errors are reported without taking down the agent reply.
  */
+export function defaultRetainQueuePath(): string {
+  return join(
+    resolveStateDir(),
+    "plugins",
+    "hindsight-memory",
+    "retain-queue.jsonl",
+  );
+}
+
 function openRetainQueue(pluginConfig: PluginConfig): RetainQueue {
-  const queuePath =
-    pluginConfig.retainQueuePath ||
-    join(homedir(), ".openclaw", "plugins", "hindsight", "retain-queue.jsonl");
+  const queuePath = pluginConfig.retainQueuePath || defaultRetainQueuePath();
   return new RetainQueue({
     filePath: queuePath,
     maxAgeMs: pluginConfig.retainQueueMaxAgeMs ?? -1,
@@ -2300,10 +2307,10 @@ export function detectLLMConfig(pluginConfig?: PluginConfig): {
     throw new Error(
       `No LLM provider configured for the Hindsight memory plugin.\n\n` +
         `Set the provider via 'openclaw config set':\n` +
-        `  openclaw config set plugins.entries.hindsight.config.llmProvider openai\n\n` +
+        `  openclaw config set plugins.entries.hindsight-memory.config.llmProvider openai\n\n` +
         `For providers that need an API key, configure it as a SecretRef so the value\n` +
         `is read from an env var (or file/exec source) at runtime instead of stored in plain text:\n` +
-        `  openclaw config set plugins.entries.hindsight.config.llmApiKey \\\n` +
+        `  openclaw config set plugins.entries.hindsight-memory.config.llmApiKey \\\n` +
         `      --ref-source env --ref-provider default --ref-id OPENAI_API_KEY\n\n` +
         `Providers that don't need an API key: ${[...NO_KEY_REQUIRED_PROVIDERS].join(", ")}.\n` +
         `Or point the plugin at an external Hindsight API by setting hindsightApiUrl instead.`,
@@ -2315,7 +2322,7 @@ export function detectLLMConfig(pluginConfig?: PluginConfig): {
     throw new Error(
       `llmProvider is set to "${provider}" but llmApiKey is empty.\n\n` +
         `Configure it via 'openclaw config set' as a SecretRef:\n` +
-        `  openclaw config set plugins.entries.hindsight.config.llmApiKey \\\n` +
+        `  openclaw config set plugins.entries.hindsight-memory.config.llmApiKey \\\n` +
         `      --ref-source env --ref-provider default --ref-id OPENAI_API_KEY`,
     );
   }
@@ -2701,7 +2708,8 @@ export function normalizeRetainTags(value: unknown): string[] {
 }
 
 export function getPluginConfig(api: MoltbotPluginAPI): PluginConfig {
-  const config = api.config.plugins?.entries?.["hindsight"]?.config || {};
+  const config =
+    api.config.plugins?.entries?.["hindsight-memory"]?.config || {};
 
   const senderPrefixPattern =
     typeof config.senderPrefixPattern === "string" &&
@@ -3572,11 +3580,11 @@ export default function (api: MoltbotPluginAPI) {
               ctx.hookInvocation?.assertActive();
               const emitted = emitAgentEvent({
                 runId: ctx.runId,
-                stream: "plugin:hindsight",
+                stream: "plugin:hindsight-memory",
                 sessionKey: sessionKeyForCache,
                 data: {
                   kind: "hindsight.recall",
-                  pluginId: "hindsight",
+                  pluginId: "hindsight-memory",
                   recallId,
                   ...(sessionKeyForCache === undefined
                     ? {}

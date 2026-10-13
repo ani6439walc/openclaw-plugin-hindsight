@@ -69,7 +69,7 @@ beforeEach(async () => {
     config: {
       plugins: {
         entries: {
-          hindsight: {
+          "hindsight-memory": {
             config: {
               hindsightApiUrl: baseUrl,
               bankId: "test-bank",

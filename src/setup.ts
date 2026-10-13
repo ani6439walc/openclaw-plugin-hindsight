@@ -4,7 +4,7 @@
  *
  * Two modes of operation:
  *
- *   1. Interactive — no flags, just run `hindsight-openclaw-setup`. Walks the
+ *   1. Interactive — no flags, just run `hindsight-memory-setup`. Walks the
  *      user through picking a mode (Cloud / External API / Embedded daemon)
  *      via @clack/prompts and writes openclaw.json.
  *
@@ -61,7 +61,7 @@ export interface ParsedCliArgs {
 
 function usage(): string {
   return [
-    "Usage: hindsight-openclaw-setup [options] [config-path]",
+    "Usage: hindsight-memory-setup [options] [config-path]",
     "",
     "Interactive mode (no flags): walks through a TUI picker for Cloud /",
     "External API / Embedded daemon and writes the resulting plugin config",
@@ -95,12 +95,12 @@ function usage(): string {
     "  -h, --help              Show this help",
     "",
     "Examples:",
-    "  hindsight-openclaw-setup",
-    "  hindsight-openclaw-setup --mode cloud --token hsk_...",
-    "  hindsight-openclaw-setup --mode cloud --token-env HINDSIGHT_CLOUD_TOKEN",
-    "  hindsight-openclaw-setup --mode api --api-url https://mcp.hindsight.example.com --no-token",
-    "  hindsight-openclaw-setup --mode embedded --provider openai --api-key-env OPENAI_API_KEY",
-    "  hindsight-openclaw-setup --mode embedded --provider claude-code",
+    "  hindsight-memory-setup",
+    "  hindsight-memory-setup --mode cloud --token hsk_...",
+    "  hindsight-memory-setup --mode cloud --token-env HINDSIGHT_CLOUD_TOKEN",
+    "  hindsight-memory-setup --mode api --api-url https://mcp.hindsight.example.com --no-token",
+    "  hindsight-memory-setup --mode embedded --provider openai --api-key-env OPENAI_API_KEY",
+    "  hindsight-memory-setup --mode embedded --provider claude-code",
   ].join("\n");
 }
 
@@ -515,7 +515,7 @@ async function runInteractive(
       "",
       "Secrets were stored inline in openclaw.json. To reference an env var",
       "instead (recommended for CI/production), use:",
-      "  openclaw config set plugins.entries.hindsight.config.hindsightApiToken \\",
+      "  openclaw config set plugins.entries.hindsight-memory.config.hindsightApiToken \\",
       "      --ref-source env --ref-id HINDSIGHT_CLOUD_TOKEN",
     ].join("\n"),
     "Hindsight Memory configured",
@@ -534,7 +534,7 @@ async function main(): Promise<void> {
     args = parseCliArgs(process.argv.slice(2));
   } catch (err) {
     console.error(
-      `hindsight-openclaw-setup: ${err instanceof Error ? err.message : err}`,
+      `hindsight-memory-setup: ${err instanceof Error ? err.message : err}`,
     );
     console.error();
     console.error(usage());
@@ -557,7 +557,7 @@ async function main(): Promise<void> {
       console.log(`Saved to ${configPath}`);
     } catch (err) {
       console.error(
-        `hindsight-openclaw-setup: ${err instanceof Error ? err.message : err}`,
+        `hindsight-memory-setup: ${err instanceof Error ? err.message : err}`,
       );
       process.exit(1);
     }
@@ -572,7 +572,7 @@ async function main(): Promise<void> {
  * Only run `main()` when this file is the Node entry point. Importing it from
  * a test (or any other module) should not trigger the interactive wizard.
  *
- * When invoked through `node_modules/.bin/hindsight-openclaw-setup` (npm-created
+ * When invoked through `node_modules/.bin/hindsight-memory-setup` (npm-created
  * symlink), `process.argv[1]` points at the symlink while `import.meta.url`
  * resolves to the real file. Canonicalize both via `realpath` so the check
  * still matches — otherwise `main()` never runs on bin invocations and the
@@ -600,7 +600,7 @@ function isDirectRun(): boolean {
 if (isDirectRun()) {
   main().catch((err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`hindsight-openclaw-setup failed: ${msg}`);
+    console.error(`hindsight-memory-setup failed: ${msg}`);
     process.exit(1);
   });
 }

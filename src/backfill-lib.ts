@@ -89,7 +89,7 @@ export function loadPluginConfigFromOpenClawRoot(
   };
   return {
     ...DEFAULT_PLUGIN_CONFIG,
-    ...(raw.plugins?.entries?.["hindsight"]?.config || {}),
+    ...(raw.plugins?.entries?.["hindsight-memory"]?.config || {}),
   };
 }
 

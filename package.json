@@ -10,19 +10,18 @@
   "contributors": [
     "Wan, Jiun Wei <wei840222@gmail.com>"
   ],
-  "homepage": "https://github.com/ani6439walc/openclaw-plugin-hindsight#readme",
+  "homepage": "https://github.com/ani6439walc/openclaw-plugin-hindsight-memory#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ani6439walc/openclaw-plugin-hindsight.git"
+    "url": "https://github.com/ani6439walc/openclaw-plugin-hindsight-memory.git"
   },
   "bugs": {
-    "url": "https://github.com/ani6439walc/openclaw-plugin-hindsight/issues"
+    "url": "https://github.com/ani6439walc/openclaw-plugin-hindsight-memory/issues"
   },
   "keywords": [
     "openclaw",
     "plugin",
-    "hindsight",
-    "long-term-memory"
+    "hindsight-memory"
   ],
   "files": [
     "README.md",

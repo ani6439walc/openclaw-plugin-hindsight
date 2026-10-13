@@ -48,6 +48,7 @@ import {
   filterInternalAndOperationalTurns,
   isInternalOrOperationalTurnMessage,
   isUserTurnInitiator,
+  defaultRetainQueuePath,
 } from "./index.js";
 import type { PluginConfig, MemoryResult, MoltbotPluginAPI } from "./types.js";
 
@@ -2786,7 +2787,9 @@ describe("async retain operation id capability", () => {
 
 function makeApi(rawConfig: Record<string, unknown>): MoltbotPluginAPI {
   return {
-    config: { plugins: { entries: { hindsight: { config: rawConfig } } } },
+    config: {
+      plugins: { entries: { "hindsight-memory": { config: rawConfig } } },
+    },
     registerService: () => undefined,
     on: () => undefined,
     logger: {
@@ -2848,6 +2851,36 @@ describe("getPluginConfig — retainQueue whitelist (#1443)", () => {
       getPluginConfig(makeApi({ retainQueueFlushIntervalMs: -5 }))
         .retainQueueFlushIntervalMs,
     ).toBeUndefined();
+  });
+});
+
+describe("defaultRetainQueuePath", () => {
+  it("resolves under plugins/hindsight-memory/retain-queue.jsonl", () => {
+    const queuePath = defaultRetainQueuePath();
+    expect(queuePath).toMatch(
+      /plugins[/\\]hindsight-memory[/\\]retain-queue\.jsonl$/,
+    );
+  });
+
+  it("respects OPENCLAW_STATE_DIR environment variable override", () => {
+    const originalEnv = process.env.OPENCLAW_STATE_DIR;
+    try {
+      process.env.OPENCLAW_STATE_DIR = "/custom/openclaw/state";
+      expect(defaultRetainQueuePath()).toBe(
+        join(
+          "/custom/openclaw/state",
+          "plugins",
+          "hindsight-memory",
+          "retain-queue.jsonl",
+        ),
+      );
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.OPENCLAW_STATE_DIR;
+      } else {
+        process.env.OPENCLAW_STATE_DIR = originalEnv;
+      }
+    }
   });
 });
 

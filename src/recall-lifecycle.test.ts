@@ -83,7 +83,7 @@ describe("automatic recall service lifecycle", () => {
       config: {
         plugins: {
           entries: {
-            hindsight: {
+            "hindsight-memory": {
               config: {
                 hindsightApiUrl: "http://localhost:8888",
                 bankId: "test-bank",
@@ -162,10 +162,10 @@ describe("automatic recall service lifecycle", () => {
     expect(progress[2]).toEqual({
       runId: ctx.runId,
       sessionKey: ctx.sessionKey,
-      stream: "plugin:hindsight",
+      stream: "plugin:hindsight-memory",
       data: {
         kind: "hindsight.recall",
-        pluginId: "hindsight",
+        pluginId: "hindsight-memory",
         recallId: expect.any(String),
         sessionKey: ctx.sessionKey,
         state: "completed",
@@ -331,7 +331,10 @@ describe("automatic recall service lifecycle", () => {
   it("uses the host SDK when the scoped API disables global side effects", async () => {
     const received: string[] = [];
     const unsubscribe = sdk.onAgentEvent((event) => {
-      if (event.runId === ctx.runId && event.stream === "plugin:hindsight")
+      if (
+        event.runId === ctx.runId &&
+        event.stream === "plugin:hindsight-memory"
+      )
         received.push(String(event.data.state));
     });
     emit.mockImplementation(sdk.emitAgentEvent);

@@ -45,7 +45,7 @@ function makeApi(config: Record<string, unknown>): {
   let service: StartedService | undefined;
   const infoLines: string[] = [];
   const api = {
-    config: { plugins: { entries: { hindsight: { config } } } },
+    config: { plugins: { entries: { "hindsight-memory": { config } } } },
     registerService: (svc: StartedService) => {
       service = svc;
     },
@@ -71,7 +71,7 @@ let tempDir: string;
 
 beforeEach(() => {
   originalFetch = globalThis.fetch;
-  tempDir = mkdtempSync(join(tmpdir(), "hindsight-openclaw-"));
+  tempDir = mkdtempSync(join(tmpdir(), "hindsight-memory-"));
   daemonStart.mockClear();
   daemonStop.mockClear();
   daemonCheckHealth.mockClear();

@@ -11,7 +11,7 @@ import {
 const tempDirs: string[] = [];
 
 function makeTempRoot(): string {
-  const dir = mkdtempSync(join(tmpdir(), "hindsight-openclaw-backfill-"));
+  const dir = mkdtempSync(join(tmpdir(), "hindsight-memory-backfill-"));
   tempDirs.push(dir);
   return dir;
 }
@@ -49,7 +49,7 @@ describe("backfill planning", () => {
     writeOpenClawConfig(root, {
       plugins: {
         entries: {
-          hindsight: {
+          "hindsight-memory": {
             config: {
               dynamicBankId: true,
               dynamicBankGranularity: ["agent", "provider", "channel"],
@@ -95,7 +95,7 @@ describe("backfill planning", () => {
   it("supports migration overrides for agent-only banks", () => {
     const root = makeTempRoot();
     writeOpenClawConfig(root, {
-      plugins: { entries: { hindsight: { config: {} } } },
+      plugins: { entries: { "hindsight-memory": { config: {} } } },
     });
     writeSession(root, "proj-debug", "two.jsonl", [
       {
@@ -121,7 +121,7 @@ describe("backfill planning", () => {
   it("can exclude archive sessions", () => {
     const root = makeTempRoot();
     writeOpenClawConfig(root, {
-      plugins: { entries: { hindsight: { config: {} } } },
+      plugins: { entries: { "hindsight-memory": { config: {} } } },
     });
     writeSession(root, "main", "live.jsonl", [
       { type: "session", id: "live" },

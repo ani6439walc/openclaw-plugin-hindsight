@@ -437,7 +437,7 @@ describe("loadConfig / saveConfig", () => {
   let tmpDir: string;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "hindsight-openclaw-setup-"));
+    tmpDir = await mkdtemp(join(tmpdir(), "hindsight-memory-setup-"));
   });
 
   afterEach(async () => {

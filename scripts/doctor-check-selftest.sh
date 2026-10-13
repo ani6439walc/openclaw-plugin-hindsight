@@ -23,8 +23,8 @@ eval "$(sed -n '/^assert_doctor_clean()/,/^}/p' "$SMOKE")"
 
 BLOCKED='Diagnostics:
 - memory-core: memory plugin not selected for the memory slot; skipping its indexing runtime and recall registration (consolidation lifecycle preserved)
-- hindsight-openclaw: typed hook "before_prompt_build" blocked because non-bundled plugins must set plugins.entries.hindsight-openclaw.hooks.allowConversationAccess=true
-- hindsight-openclaw: typed hook "agent_end" blocked because non-bundled plugins must set plugins.entries.hindsight-openclaw.hooks.allowConversationAccess=true'
+- hindsight-memory: typed hook "before_prompt_build" blocked because non-bundled plugins must set plugins.entries.hindsight-memory.hooks.allowConversationAccess=true
+- hindsight-memory: typed hook "agent_end" blocked because non-bundled plugins must set plugins.entries.hindsight-memory.hooks.allowConversationAccess=true'
 
 HEALTHY='Diagnostics:
 - memory-core: memory plugin not selected for the memory slot; skipping its indexing runtime and recall registration (consolidation lifecycle preserved)'

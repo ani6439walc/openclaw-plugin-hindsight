@@ -77,7 +77,7 @@ function createMockApi(
     config: {
       plugins: {
         entries: {
-          "hindsight-openclaw": {
+          "hindsight-memory": {
             enabled: true,
             config: pluginConfig as PluginConfig,
           },

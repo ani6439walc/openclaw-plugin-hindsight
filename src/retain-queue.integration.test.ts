@@ -55,7 +55,7 @@ function makeApi(
     config: {
       plugins: {
         entries: {
-          hindsight: {
+          "hindsight-memory": {
             config: {
               hindsightApiUrl: "https://hindsight.test",
               retainQueuePath: queuePath,
