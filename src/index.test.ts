@@ -68,7 +68,15 @@ const openclawManifest = require("../openclaw.plugin.json") as {
 // ---------------------------------------------------------------------------
 
 describe("stripMemoryTags", () => {
-  it("strips simple hindsight_memories tags", () => {
+  it("strips simple hindsight_memory_plugin tags", () => {
+    const input =
+      "User: Hello\n<hindsight_memory_plugin>\nRelevant memories here...\n</hindsight_memory_plugin>\nAssistant: How can I help?";
+    expect(stripMemoryTags(input)).toBe(
+      "User: Hello\n\nAssistant: How can I help?",
+    );
+  });
+
+  it("strips legacy hindsight_memories tags", () => {
     const input =
       "User: Hello\n<hindsight_memories>\nRelevant memories here...\n</hindsight_memories>\nAssistant: How can I help?";
     expect(stripMemoryTags(input)).toBe(
@@ -938,12 +946,12 @@ describe("prepareRetentionTranscript", () => {
       {
         role: "assistant",
         content:
-          "<hindsight_memories>\nUser prefers dark mode\n</hindsight_memories>\nHere is how to enable dark mode.",
+          "<hindsight_memory_plugin>\nUser prefers dark mode\n</hindsight_memory_plugin>\nHere is how to enable dark mode.",
       },
     ];
     const result = prepareRetentionTranscript(messages, baseConfig);
     expect(result).not.toBeNull();
-    expect(result?.transcript).not.toContain("<hindsight_memories>");
+    expect(result?.transcript).not.toContain("<hindsight_memory_plugin>");
     expect(result?.transcript).not.toContain("User prefers dark mode");
     expect(result?.transcript).toContain("Here is how to enable dark mode.");
   });
@@ -1038,14 +1046,14 @@ describe("prepareRetentionTranscript", () => {
 
   it("strips memory tags from user message when prependContext is prepended to it", () => {
     // Simulates the host prepending prependContext to the user message content
-    const userContent = `<hindsight_memories>\nRelevant memories:\n- User prefers dark mode [world]\n\nUser message: What is dark mode?\n</hindsight_memories>\nWhat is dark mode?`;
+    const userContent = `<hindsight_memory_plugin>\nRelevant memories:\n- User prefers dark mode [world]\n\nUser message: What is dark mode?\n</hindsight_memory_plugin>\nWhat is dark mode?`;
     const messages = [
       { role: "user", content: userContent },
       { role: "assistant", content: "Dark mode is a display setting." },
     ];
     const result = prepareRetentionTranscript(messages, baseConfig);
     expect(result).not.toBeNull();
-    expect(result?.transcript).not.toContain("<hindsight_memories>");
+    expect(result?.transcript).not.toContain("<hindsight_memory_plugin>");
     expect(result?.transcript).not.toContain("User prefers dark mode");
     expect(result?.transcript).toContain("What is dark mode?");
     expect(result?.transcript).toContain("Dark mode is a display setting.");
@@ -1229,7 +1237,8 @@ describe("prepareRetentionTranscript", () => {
       { role: "user", content: "Real message" },
       {
         role: "assistant",
-        content: "<hindsight_memories>\nonly tags\n</hindsight_memories>",
+        content:
+          "<hindsight_memory_plugin>\nonly tags\n</hindsight_memory_plugin>",
       },
       { role: "assistant", content: "Actual response" },
     ];

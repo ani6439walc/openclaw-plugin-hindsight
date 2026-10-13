@@ -311,9 +311,9 @@ describe("before_prompt_build hook", () => {
     expect(result).toBeDefined();
     expect(result.prependSystemContext).toBeUndefined();
     expect(result.appendSystemContext).toBeUndefined();
-    expect(result.prependContext).toContain("<hindsight_memories>");
+    expect(result.prependContext).toContain("<hindsight_memory_plugin>");
     expect(result.prependContext).toContain("User likes Python");
-    expect(result.prependContext).toContain("</hindsight_memories>");
+    expect(result.prependContext).toContain("</hindsight_memory_plugin>");
   });
 
   it("injects all memory result fields in the default prependContext", async () => {
@@ -344,8 +344,8 @@ describe("before_prompt_build hook", () => {
     // formatMemories returns a bullet list, not JSON
     expect(result.prependSystemContext).toBeUndefined();
     expect(result.prependContext).toContain("- User prefers dark mode");
-    expect(result.prependContext).toContain("<hindsight_memories>");
-    expect(result.prependContext).toContain("</hindsight_memories>");
+    expect(result.prependContext).toContain("<hindsight_memory_plugin>");
+    expect(result.prependContext).toContain("</hindsight_memory_plugin>");
     expect(result.prependContext).toContain(
       "[occurred: 2026-01-14T09:00:00Z → 2026-01-14T11:00:00Z]",
     );
@@ -440,7 +440,7 @@ describe("before_prompt_build hook", () => {
 
     expect(result.prependSystemContext).toBeUndefined();
     expect(result.prependContext).toContain("User loves hiking");
-    expect(result.prependContext).toContain("<hindsight_memories>");
+    expect(result.prependContext).toContain("<hindsight_memory_plugin>");
   });
 
   it("uses identity cached in before_dispatch when later hooks lack sender metadata", async () => {
@@ -674,12 +674,12 @@ describe("agent_end hook", () => {
     expect(options?.metadata?.sender_id).toBe("U015C");
   });
 
-  it("strips <hindsight_memories> tags from content before retaining", async () => {
+  it("strips <hindsight_memory_plugin> tags from content before retaining", async () => {
     if (!apiReachable) return;
     retainSpy.mockResolvedValue(OK_RETAIN);
 
     const contentWithMemories =
-      '<hindsight_memories>\nRelevant memories:\n[{"text":"old fact"}]\n</hindsight_memories>\nI enjoy reading science fiction.';
+      '<hindsight_memory_plugin>\nRelevant memories:\n[{"text":"old fact"}]\n</hindsight_memory_plugin>\nI enjoy reading science fiction.';
 
     await triggerHook(
       "agent_end",
@@ -696,8 +696,8 @@ describe("agent_end hook", () => {
 
     expect(retainSpy).toHaveBeenCalledOnce();
     const [, content] = retainSpy.mock.calls[0];
-    expect(content).not.toContain("<hindsight_memories>");
-    expect(content).not.toContain("</hindsight_memories>");
+    expect(content).not.toContain("<hindsight_memory_plugin>");
+    expect(content).not.toContain("</hindsight_memory_plugin>");
     expect(content).not.toContain("old fact");
     expect(content).toContain("I enjoy reading science fiction.");
   });

@@ -861,6 +861,10 @@ function getStaticBankId(pluginConfig: PluginConfig): string {
  */
 export function stripMemoryTags(content: string): string {
   content = content.replace(
+    /<hindsight_memory_plugin>[\s\S]*?<\/hindsight_memory_plugin>/g,
+    "",
+  );
+  content = content.replace(
     /<hindsight_memories>[\s\S]*?<\/hindsight_memories>/g,
     "",
   );
@@ -3732,12 +3736,12 @@ export default function (api: MoltbotPluginAPI) {
           // [doc:<document_id>], each part present only when the memory carries it)
           const memoriesFormatted = formatMemories(results);
 
-          const contextMessage = `<hindsight_memories>
+          const contextMessage = `<hindsight_memory_plugin>
 ${pluginConfig.recallPromptPreamble || DEFAULT_RECALL_PROMPT_PREAMBLE}
 Current time - ${formatCurrentTimeForRecall()}
 
 ${memoriesFormatted}
-</hindsight_memories>`;
+</hindsight_memory_plugin>`;
 
           debug(
             `[Hindsight] Auto-recall: Injecting ${results.length} memories from bank ${bankId}`,
