@@ -169,20 +169,20 @@ importers:
   .:
     dependencies:
       '@clack/prompts':
-        specifier: ^1.8.1
+        specifier: 1.8.1
         version: 1.8.1
       '@vectorize-io/hindsight-agent-sdk':
-        specifier: ^0.1.1
+        specifier: 0.1.1
         version: 0.1.1
       '@vectorize-io/hindsight-all':
-        specifier: ^0.10.3
-        version: 0.10.3
+        specifier: 1.0.0
+        version: 1.0.0
       '@vectorize-io/hindsight-client':
-        specifier: ^0.10.3
-        version: 0.10.3
+        specifier: 1.0.0
+        version: 1.0.0
       openclaw:
-        specifier: 2026.10.2
-        version: 2026.10.2(undici@8.10.2)
+        specifier: 2026.10.3
+        version: 2026.10.3(undici@8.10.2)
     devDependencies:
       '@openclaw/proxyline':
         specifier: 0.3.12
@@ -634,8 +634,8 @@ packages:
     resolution: {integrity: sha512-juG5VWh4qAivzTAeMzvY9xs9HY5rAcr2E4I7tiSSCokRFi7XIZCAu92ZkSTsIj1OPceCifL3cpfteP3pDT9/QQ==}
     engines: {node: '>=14.0.0'}
 
-  '@openclaw/ai@2026.10.2':
-    resolution: {integrity: sha512-cgw8vpCfbmnY5Qbe+7gZWN1lsnCuBUFasu2nNjUkDAtKh+RzvPQZudMvkhA34vVhuQZ8KUf6D45dMePWC560Ww==}
+  '@openclaw/ai@2026.10.3':
+    resolution: {integrity: sha512-nPB0z/GMTyQayVu1JSDOml+orERUBzg9zo+2f4UxLLpDLJe0ERHrOPQQ3tGV+fDu/jATN9EAfXJPRMNUs1168g==}
     engines: {node: '>=22.19.0'}
 
   '@openclaw/fs-safe-darwin-arm64@0.24.2':
@@ -1076,15 +1076,15 @@ packages:
   '@vectorize-io/hindsight-agent-sdk@0.1.1':
     resolution: {integrity: sha512-O08ZXQL65L1Dd4DHWuihaprGRkG8/YSr75dhVykyCv4UFX0C48MOCo7aRXRB2ajEPJpmIu3BGRMNKaiShf+Ppg==}
 
-  '@vectorize-io/hindsight-all@0.10.3':
-    resolution: {integrity: sha512-cA5jBV3BsxgEWmmXwFhfAxjxYzwNr5dwNObM6atPgTZPH6YEHpHAF+EwkIKQYhVbW45h26MQmC6C4U0U1sxn6w==}
+  '@vectorize-io/hindsight-all@1.0.0':
+    resolution: {integrity: sha512-XlQMkpSXQJZVB/xd08y2A/0L7n8rM35ND9PSZsNRzBGAqTRg3mGfyzLU4TzKyCdatB2YO//eCQRYMVWuCcD+LA==}
     engines: {node: '>=22'}
-
-  '@vectorize-io/hindsight-client@0.10.3':
-    resolution: {integrity: sha512-bCBIeZVIEUftC4PX20cHaqgxN+NOm4XOhHWYtmfPMIEuVs39vdMMq3LX7Z0dSunVKVlnVWB9BSWr5I5ZDtDtVA==}
 
   '@vectorize-io/hindsight-client@0.6.2':
     resolution: {integrity: sha512-bymmlMWI1z0zOjgY+wRMLudNxzqcW20VHMtyV3QLhwJm63NeQN/nEZ4plWPR0p28DffaUM5nk2VSxzQljN+Mow==}
+
+  '@vectorize-io/hindsight-client@1.0.0':
+    resolution: {integrity: sha512-QQIainWu2jN9z65GuNitQxRos8Lg7o3RwBv/w+PRaJWcwvhBE0PtPtF7xL3NqTLARccqpDYB11aaa7Iklu2goA==}
 
   '@vitest/mocker@5.0.4':
     resolution: {integrity: sha512-tqAlrYWce4iUxhr3ncNohejtCTOcHeE8XWrSNZY3OhPoDn01yeGv+gnaBy64ATp7o6pb03eIbBAjzmibpc9vIQ==}
@@ -1992,8 +1992,8 @@ packages:
       zod:
         optional: true
 
-  openclaw@2026.10.2:
-    resolution: {integrity: sha512-FuLLF+WI12ypwQ0r+pcKDcmB+kXus5N4QClaKEnaAn6GN4I1AitkOhwv0GFl2rVKpvuUBDQWIfglHNy6Trv/EQ==}
+  openclaw@2026.10.3:
+    resolution: {integrity: sha512-ncl6LntMlf76K39LFhVrDXQTbaGNAG5j52f7PL5P8vIn0knWmCrvfAe9DHMslFq+47HeOWBH2CBYQH8zEb+UAA==}
     engines: {node: '>=24.16.0 <25 || >=26.1.0'}
     hasBin: true
     bundledDependencies:
@@ -2849,7 +2849,7 @@ snapshots:
 
   '@mozilla/readability@0.6.0': {}
 
-  '@openclaw/ai@2026.10.2(@modelcontextprotocol/sdk@1.31.0(zod@4.6.5))(undici@8.10.2)(ws@8.21.3)(zod@4.6.5)':
+  '@openclaw/ai@2026.10.3(@modelcontextprotocol/sdk@1.31.0(zod@4.6.5))(undici@8.10.2)(ws@8.21.3)(zod@4.6.5)':
     dependencies:
       '@anthropic-ai/sdk': 0.128.0(zod@4.6.5)
       '@google/genai': 2.24.0(@modelcontextprotocol/sdk@1.31.0(zod@4.6.5))
@@ -3129,11 +3129,11 @@ snapshots:
     dependencies:
       '@vectorize-io/hindsight-client': 0.6.2
 
-  '@vectorize-io/hindsight-all@0.10.3': {}
-
-  '@vectorize-io/hindsight-client@0.10.3': {}
+  '@vectorize-io/hindsight-all@1.0.0': {}
 
   '@vectorize-io/hindsight-client@0.6.2': {}
+
+  '@vectorize-io/hindsight-client@1.0.0': {}
 
   '@vitest/mocker@5.0.4(vite@8.3.3(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))':
     dependencies:
@@ -3932,7 +3932,7 @@ snapshots:
       ws: 8.21.3
       zod: 4.6.5
 
-  openclaw@2026.10.2(undici@8.10.2):
+  openclaw@2026.10.3(undici@8.10.2):
     dependencies:
       '@agentclientprotocol/sdk': 1.5.0(zod@4.6.5)
       '@anthropic-ai/sdk': 0.128.0(zod@4.6.5)
@@ -3949,7 +3949,7 @@ snapshots:
       '@mistralai/mistralai': 2.7.0
       '@modelcontextprotocol/sdk': 1.31.0(zod@4.6.5)
       '@mozilla/readability': 0.6.0
-      '@openclaw/ai': 2026.10.2(@modelcontextprotocol/sdk@1.31.0(zod@4.6.5))(undici@8.10.2)(ws@8.21.3)(zod@4.6.5)
+      '@openclaw/ai': 2026.10.3(@modelcontextprotocol/sdk@1.31.0(zod@4.6.5))(undici@8.10.2)(ws@8.21.3)(zod@4.6.5)
       '@openclaw/fs-safe': 0.24.2
       '@silvia-odwyer/photon-node': 0.3.4
       '@trycua/cua-driver': 0.28.2
