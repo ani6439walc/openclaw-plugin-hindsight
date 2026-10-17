@@ -15,28 +15,30 @@ jobs:
         node: [24, 26]
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-          cache: npm
-      - run: npm ci
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Test Jules review automation
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
       - run: npm pack --dry-run
       - name: Verify packing restored the manifest
-        run: git diff --exit-code -- package.json package-lock.json
+        run: git diff --exit-code -- package.json pnpm-lock.yaml pnpm-workspace.yaml
 
   windows-queue:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Verify outbox filesystem behavior on Windows
-        run: npx vitest run src/retain-outbox.test.ts src/retain-queue.test.ts --maxWorkers=2
+        run: pnpm exec vitest run src/retain-outbox.test.ts src/retain-queue.test.ts --maxWorkers=2

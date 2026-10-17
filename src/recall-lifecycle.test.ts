@@ -13,9 +13,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import plugin from "./index.js";
 import type {
-  MoltbotPluginAPI,
+  OpenClawPluginApi,
   PluginHookAgentContext,
-  ServiceConfig,
+  PluginHookHandler,
+  OpenClawPluginService,
 } from "./types.js";
 
 const emit = vi.hoisted(() => vi.fn());
@@ -48,10 +49,10 @@ const memory = {
 };
 
 describe("automatic recall service lifecycle", () => {
-  let service: ServiceConfig;
-  let hooks: Map<string, Parameters<MoltbotPluginAPI["on"]>[1]>;
+  let service: OpenClawPluginService;
+  let hooks: Map<string, PluginHookHandler<"before_prompt_build">>;
   let directory: string;
-  let api: MoltbotPluginAPI;
+  let api: OpenClawPluginApi;
   const ctx: PluginHookAgentContext = {
     runId: "test-run",
     agentId: "main",
@@ -60,7 +61,11 @@ describe("automatic recall service lifecycle", () => {
     channelId: "test-user",
     senderId: "test-user",
   };
-  const event = { rawMessage: "What was the project decision?", messages: [] };
+  const event = {
+    prompt: "What was the project decision?",
+    currentUserMessage: "What was the project decision?",
+    messages: [],
+  };
   beforeEach(async () => {
     directory = mkdtempSync(join(tmpdir(), "hindsight-recall-cancellation-"));
     hooks = new Map();
@@ -80,23 +85,16 @@ describe("automatic recall service lifecycle", () => {
     );
     api = {
       agent: { events: { emitAgentEvent: emit } },
-      config: {
-        plugins: {
-          entries: {
-            "hindsight-memory": {
-              config: {
-                hindsightApiUrl: "http://localhost:8888",
-                bankId: "test-bank",
-                dynamicBankId: false,
-                autoRecall: true,
-                autoRetain: false,
-                recallTimeoutMs: 1000,
-                retainQueuePath: join(directory, "queue.jsonl"),
-                logLevel: "error",
-              },
-            },
-          },
-        },
+      config: {},
+      pluginConfig: {
+        hindsightApiUrl: "http://localhost:8888",
+        bankId: "test-bank",
+        dynamicBankId: false,
+        autoRecall: true,
+        autoRetain: false,
+        recallTimeoutMs: 1000,
+        retainQueuePath: join(directory, "queue.jsonl"),
+        logLevel: "error",
       },
       registerService: (registered) => {
         service = registered;
@@ -106,7 +104,7 @@ describe("automatic recall service lifecycle", () => {
       },
       logger: { info: () => {}, warn: () => {}, error: () => {} },
     };
-    plugin(api);
+    plugin.register!(api);
     await service.start();
   });
   afterEach(async () => {
@@ -266,7 +264,7 @@ describe("automatic recall service lifecycle", () => {
   it("does not start progress for an empty query", async () => {
     expect(
       await hooks.get("before_prompt_build")!(
-        { rawMessage: "", messages: [] },
+        { currentUserMessage: "", messages: [] },
         ctx,
       ),
     ).toBeUndefined();
@@ -417,7 +415,7 @@ describe("automatic recall service lifecycle", () => {
   it("skips recall when prompt is a subagent completion event even without inputProvenance", async () => {
     const recall = vi.spyOn(HindsightClient.prototype, "recall");
     const subagentEvent = {
-      rawMessage: undefined,
+      currentUserMessage: undefined,
       prompt: [
         "[Subagent Context] Every subagent in this batch has now settled, including its descendants.",
         "Child completion results:",

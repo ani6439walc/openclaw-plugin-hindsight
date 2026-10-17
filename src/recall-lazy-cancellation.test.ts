@@ -2,11 +2,15 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { MoltbotPluginAPI, ServiceConfig } from "./types.js";
+import type {
+  OpenClawPluginApi,
+  OpenClawPluginService,
+  PluginHookHandler,
+} from "./types.js";
 
 let directory: string;
-let service: ServiceConfig;
-let hook: Parameters<MoltbotPluginAPI["on"]>[1];
+let service: OpenClawPluginService;
+let hook: PluginHookHandler<"before_prompt_build">;
 let Client: typeof import("@vectorize-io/hindsight-client").HindsightClient;
 const memory = {
   results: [
@@ -21,7 +25,14 @@ const ctx = {
   senderId: "test-user",
 };
 function recall() {
-  return hook({ rawMessage: "What was the project decision?" }, ctx);
+  return hook(
+    {
+      currentUserMessage: "What was the project decision?",
+      prompt: "What was the project decision?",
+      messages: [],
+    },
+    ctx,
+  );
 }
 
 beforeEach(async () => {
@@ -43,24 +54,17 @@ beforeEach(async () => {
         ),
     ),
   );
-  const api: MoltbotPluginAPI = {
-    config: {
-      plugins: {
-        entries: {
-          "hindsight-memory": {
-            config: {
-              hindsightApiUrl: "http://localhost:8888",
-              bankId: "test-bank",
-              dynamicBankId: false,
-              autoRecall: true,
-              autoRetain: false,
-              recallTimeoutMs: 1000,
-              retainQueuePath: join(directory, "queue.jsonl"),
-              logLevel: "error",
-            },
-          },
-        },
-      },
+  const api: OpenClawPluginApi = {
+    config: {},
+    pluginConfig: {
+      hindsightApiUrl: "http://localhost:8888",
+      bankId: "test-bank",
+      dynamicBankId: false,
+      autoRecall: true,
+      autoRetain: false,
+      recallTimeoutMs: 1000,
+      retainQueuePath: join(directory, "queue.jsonl"),
+      logLevel: "error",
     },
     registerService: (registered) => {
       service = registered;
@@ -70,7 +74,7 @@ beforeEach(async () => {
     },
     logger: { info: () => {}, warn: () => {}, error: () => {} },
   };
-  plugin(api);
+  plugin.register!(api);
 });
 afterEach(async () => {
   await service.stop();

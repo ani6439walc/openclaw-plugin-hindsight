@@ -106,9 +106,16 @@ class JulesPrReviewTest(unittest.TestCase):
         ci_workflow = SCRIPT.parents[1] / "workflows" / "ci.yml"
         self.assertTrue(ci_workflow.exists())
         ci_text = ci_workflow.read_text(encoding="utf-8")
-        self.assertIn("npm run typecheck", ci_text)
-        self.assertIn("npm test", ci_text)
-        self.assertIn("npm run build", ci_text)
+        self.assertIn("pnpm typecheck", ci_text)
+        self.assertIn("pnpm test", ci_text)
+        self.assertIn("pnpm build", ci_text)
+        self.assertEqual(ci_text.count("uses: pnpm/action-setup@v6"), 2)
+        self.assertEqual(ci_text.count("cache: pnpm"), 2)
+        self.assertEqual(ci_text.count("pnpm install --frozen-lockfile"), 2)
+        self.assertIn("pnpm exec vitest run", ci_text)
+        self.assertIn("git diff --exit-code -- package.json pnpm-lock.yaml pnpm-workspace.yaml", ci_text)
+        self.assertNotIn("npm ci", ci_text)
+        self.assertNotIn("package-lock.json", ci_text)
 
 
 if __name__ == "__main__":

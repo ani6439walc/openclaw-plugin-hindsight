@@ -4,13 +4,17 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { MoltbotPluginAPI, ServiceConfig } from "./types.js";
+import type {
+  OpenClawPluginApi,
+  OpenClawPluginService,
+  PluginHookHandler,
+} from "./types.js";
 
 const plugin = (await import("./index.js")).default;
 
 let server: Server;
-let service: ServiceConfig;
-let hook: Parameters<MoltbotPluginAPI["on"]>[1];
+let service: OpenClawPluginService;
+let hook: PluginHookHandler<"before_prompt_build">;
 let directory: string;
 let requests: number;
 let respond: (response: ServerResponse) => void;
@@ -27,7 +31,14 @@ const ctx = {
   senderId: "test-user",
 };
 function recall() {
-  return hook({ rawMessage: "What was the project decision?" }, ctx);
+  return hook(
+    {
+      currentUserMessage: "What was the project decision?",
+      prompt: "What was the project decision?",
+      messages: [],
+    },
+    ctx,
+  );
 }
 function json(response: ServerResponse, body: unknown, status = 200) {
   response.writeHead(status, { "Content-Type": "application/json" });
@@ -65,27 +76,20 @@ beforeEach(async () => {
       throw new Error("Unexpected external request in fixture");
     return nativeFetch(input, options);
   }) as typeof fetch);
-  const api: MoltbotPluginAPI = {
-    config: {
-      plugins: {
-        entries: {
-          "hindsight-memory": {
-            config: {
-              hindsightApiUrl: baseUrl,
-              bankId: "test-bank",
-              dynamicBankId: false,
-              autoRecall: true,
-              autoRetain: false,
-              // 1000 is the floor: getPluginConfig drops anything lower, and the
-              // hook then falls back to the 10s default — which blows this test's
-              // budget rather than exercising the deadline.
-              recallTimeoutMs: 1000,
-              retainQueuePath: join(directory, "queue.jsonl"),
-              logLevel: "error",
-            },
-          },
-        },
-      },
+  const api: OpenClawPluginApi = {
+    config: {},
+    pluginConfig: {
+      hindsightApiUrl: baseUrl,
+      bankId: "test-bank",
+      dynamicBankId: false,
+      autoRecall: true,
+      autoRetain: false,
+      // 1000 is the floor: getPluginConfig drops anything lower, and the
+      // hook then falls back to the 10s default — which blows this test's
+      // budget rather than exercising the deadline.
+      recallTimeoutMs: 1000,
+      retainQueuePath: join(directory, "queue.jsonl"),
+      logLevel: "error",
     },
     registerService: (registered) => {
       service = registered;
@@ -95,7 +99,7 @@ beforeEach(async () => {
     },
     logger: { info: () => {}, warn: () => {}, error: () => {} },
   };
-  plugin(api);
+  plugin.register!(api);
   await service.start();
 });
 afterEach(async () => {

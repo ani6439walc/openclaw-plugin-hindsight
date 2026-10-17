@@ -1,101 +1,40 @@
-// Moltbot plugin API types (minimal subset needed for this plugin)
-
 import type { MinScores } from "@vectorize-io/hindsight-client";
+import type {
+  OpenClawPluginApi,
+  OpenClawPluginService,
+  OpenClawPluginToolContext,
+} from "openclaw/plugin-sdk/plugin-entry";
 
-export interface PluginPromptHookResult {
-  prependContext?: string;
-  prependSystemContext?: string;
-  appendSystemContext?: string;
-}
+export type {
+  OpenClawPluginApi,
+  OpenClawPluginService,
+  OpenClawPluginToolContext,
+};
 
-export interface MoltbotPluginAPI {
-  config: MoltbotConfig;
-  agent?: {
-    events?: {
-      emitAgentEvent?(event: {
-        runId: string;
-        stream: string;
-        sessionKey?: string;
-        data: Record<string, unknown>;
-      }): unknown;
-    };
-  };
-  registerService(config: ServiceConfig): void;
-  // OpenClaw hook handler signature: (event, ctx?) where ctx contains channel/sender info
-  on(
-    event: string,
-    handler: (
-      event: any,
-      ctx?: any,
-    ) => void | Promise<void | PluginPromptHookResult>,
-  ): void;
-  // Register a tool or tool factory for agents
-  registerTool?(
-    factory: (ctx: PluginToolContext) => any | any[] | null | undefined,
-    opts?: { name?: string; names?: string[]; optional?: boolean },
-  ): void;
-  // OpenClaw framework logger — handles coloring/formatting consistently across plugins
-  logger: {
-    info(msg: string): void;
-    warn(msg: string): void;
-    error(msg: string): void;
-  };
-}
+// Infer hook contracts from the public registration API: the SDK does not
+// export the individual hook types through a public subpath.
+declare const on: OpenClawPluginApi["on"];
+export type PluginHookName = Parameters<typeof on>[0];
+export type PluginHookHandler<K extends PluginHookName> = Parameters<
+  typeof on<K>
+>[1];
+export type PluginHookEvent<K extends PluginHookName> = Parameters<
+  PluginHookHandler<K>
+>[0];
+export type PluginHookAgentContext = Parameters<
+  PluginHookHandler<"before_prompt_build">
+>[1];
+export type PluginHookSessionContext = Parameters<
+  PluginHookHandler<"session_end">
+>[1];
 
-export interface PluginToolContext {
-  config?: MoltbotConfig;
-  agentId?: string;
-  sessionKey?: string;
-  workspaceDir?: string;
-}
-
-export interface MoltbotConfig {
-  agents?: {
-    defaults?: {
-      models?: {
-        [modelName: string]: {
-          alias?: string;
-        };
-      };
-    };
-  };
-  plugins?: {
-    entries?: {
-      [pluginId: string]: {
-        enabled?: boolean;
-        config?: PluginConfig;
-      };
-    };
-  };
-}
-
-/**
- * Origin metadata OpenClaw attaches to a run's input (and to inter-session
- * messages), e.g. `{ kind: "inter_session", sourceTool: "subagent_settle" }`.
- */
-export interface InputProvenance {
-  kind?: string;
+// Persisted transcripts can contain legacy provenance fields. Live hook
+// contexts above always retain the host SDK's current contract.
+export type InputProvenance = Partial<
+  NonNullable<PluginHookAgentContext["inputProvenance"]>
+> & {
   sourceRole?: string;
-  sourceChannel?: string;
-  sourceTool?: string;
-  sourceSessionKey?: string;
-  originSessionId?: string;
-  jobId?: string;
-  runId?: string;
-}
-
-export interface PluginHookAgentContext {
-  hookInvocation?: { assertActive(): void };
-  runId?: string;
-  agentId?: string;
-  sessionKey?: string;
-  workspaceDir?: string;
-  messageProvider?: string;
-  channelId?: string;
-  senderId?: string;
-  trigger?: string;
-  inputProvenance?: InputProvenance;
-}
+};
 
 /** A single content block of an OpenClaw session message. */
 export interface OpenClawMessageContentBlock {
@@ -219,12 +158,6 @@ export interface PluginConfig {
    * diagnose latency without patching the dist. Default: false.
    */
   debugPerfTiming?: boolean;
-}
-
-export interface ServiceConfig {
-  id: string;
-  start(): Promise<void>;
-  stop(): Promise<void>;
 }
 
 // -----------------------------------------------------------------------------

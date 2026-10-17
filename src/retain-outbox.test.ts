@@ -246,9 +246,11 @@ describe("persistent retain outbox", () => {
     }
     expect(first.size()).toBe(0);
   });
-  it("reads only one batch of payloads from a large backlog", async () => {
+  it("reads only one batch of payloads from a multi-batch backlog", async () => {
     const queue = new RetainQueue({ filePath: makeQueuePath() });
-    for (let index = 0; index < 2_000; index++) {
+    // Four batches expose eager reads without excessive durable fixture writes.
+    const backlogSize = 200;
+    for (let index = 0; index < backlogSize; index++) {
       queue.enqueue("bank-1", {
         content: `queued ${index}`,
         operationId: `operation-${index}`,
@@ -263,7 +265,7 @@ describe("persistent retain outbox", () => {
     );
     expect(retain).toHaveBeenCalledTimes(50);
     expect(readFile).toHaveBeenCalledTimes(50);
-    expect(queue.size()).toBe(1_950);
+    expect(queue.size()).toBe(backlogSize - 50);
     expect(retain.mock.calls[0][1]).toBe("queued 0");
     expect(retain.mock.calls[49][1]).toBe("queued 49");
   }, 30_000);

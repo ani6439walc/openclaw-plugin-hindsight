@@ -1,7 +1,7 @@
 /**
  * Integration tests for the OpenClaw plugin hooks.
  *
- * Loads the plugin with a mock MoltbotPluginAPI in HTTP mode, then triggers
+ * Loads the plugin with a mock OpenClawPluginApi in HTTP mode, then triggers
  * `before_prompt_build` and `agent_end` hooks with realistic event payloads.
  * Client methods (recall / retain) are spied on to verify the plugin
  * orchestrates them correctly without requiring a full LLM pipeline.
@@ -27,7 +27,7 @@ import type {
   RecallResponse,
   RetainResponse,
 } from "@vectorize-io/hindsight-client";
-import type { MoltbotPluginAPI, PluginConfig } from "../src/types.js";
+import type { OpenClawPluginApi, PluginConfig } from "../src/types.js";
 
 const HINDSIGHT_API_URL =
   process.env.HINDSIGHT_API_URL || "http://localhost:8888";
@@ -53,7 +53,7 @@ async function waitForApi(url: string, maxMs = 5000): Promise<boolean> {
 }
 
 interface MockApiHandle {
-  api: MoltbotPluginAPI;
+  api: OpenClawPluginApi;
   /** Trigger a registered hook and return the last handler's return value. */
   trigger(event: string, eventData: unknown, ctx?: unknown): Promise<unknown>;
   startServices(): Promise<void>;
@@ -73,17 +73,9 @@ function createMockApi(
     stop(): Promise<void>;
   }[] = [];
 
-  const api: MoltbotPluginAPI = {
-    config: {
-      plugins: {
-        entries: {
-          "hindsight-memory": {
-            enabled: true,
-            config: pluginConfig as PluginConfig,
-          },
-        },
-      },
-    },
+  const api: OpenClawPluginApi = {
+    config: {},
+    pluginConfig: pluginConfig as PluginConfig,
     logger: {
       info: (msg: string) => console.log(msg),
       warn: (msg: string) => console.warn(msg),
@@ -204,7 +196,7 @@ beforeAll(async () => {
   stopServicesFn = handle.stopServices;
 
   // Load the plugin — registers hooks and starts background init.
-  pluginFn(handle.api);
+  pluginFn.register!(handle.api);
 
   // service.start() awaits initPromise and health-checks the external API.
   await handle.startServices();
@@ -243,7 +235,7 @@ describe("before_prompt_build hook", () => {
     const result = await triggerHook(
       "before_prompt_build",
       {
-        rawMessage: "What are my preferences?",
+        currentUserMessage: "What are my preferences?",
         prompt: "What are my preferences?",
         messages: [],
       },
@@ -254,12 +246,12 @@ describe("before_prompt_build hook", () => {
     expect(result).toBeUndefined();
   });
 
-  it("skips recall when rawMessage is too short and returns undefined", async () => {
+  it("skips recall when currentUserMessage is too short and returns undefined", async () => {
     if (!apiReachable) return;
 
     const result = await triggerHook(
       "before_prompt_build",
-      { rawMessage: "Hi", prompt: "Hi", messages: [] },
+      { currentUserMessage: "Hi", prompt: "Hi", messages: [] },
       { messageProvider: "telegram", senderId: "U001" },
     );
 
@@ -274,7 +266,7 @@ describe("before_prompt_build hook", () => {
     const result = await triggerHook(
       "before_prompt_build",
       {
-        rawMessage: "What programming language do I like?",
+        currentUserMessage: "What programming language do I like?",
         prompt: "",
         messages: [],
       },
@@ -297,7 +289,7 @@ describe("before_prompt_build hook", () => {
     const result = (await triggerHook(
       "before_prompt_build",
       {
-        rawMessage: "What programming language do I prefer?",
+        currentUserMessage: "What programming language do I prefer?",
         prompt: "",
         messages: [],
       },
@@ -334,7 +326,7 @@ describe("before_prompt_build hook", () => {
     const result = (await triggerHook(
       "before_prompt_build",
       {
-        rawMessage: "Do I prefer dark or light mode?",
+        currentUserMessage: "Do I prefer dark or light mode?",
         prompt: "",
         messages: [],
       },
@@ -354,7 +346,7 @@ describe("before_prompt_build hook", () => {
     );
   });
 
-  it("extracts the inner query from an envelope-formatted prompt when rawMessage is absent", async () => {
+  it("extracts the inner query from an envelope-formatted prompt when currentUserMessage is absent", async () => {
     if (!apiReachable) return;
     recallSpy.mockResolvedValue(EMPTY_RECALL);
 
@@ -362,7 +354,7 @@ describe("before_prompt_build hook", () => {
       "[Telegram Chat]\nWhat is my favorite food?\n[from: Alice]";
     await triggerHook(
       "before_prompt_build",
-      { rawMessage: "", prompt: envelopePrompt, messages: [] },
+      { prompt: envelopePrompt, messages: [] },
       { messageProvider: "telegram", senderId: "U005" },
     );
 
@@ -381,7 +373,7 @@ describe("before_prompt_build hook", () => {
     await triggerHook(
       "before_prompt_build",
       {
-        rawMessage: "Do I still prefer dark mode?",
+        currentUserMessage: "Do I still prefer dark mode?",
         prompt: "",
         messages: [
           { role: "user", content: "I prefer dark mode in IDEs." },
@@ -407,7 +399,7 @@ describe("before_prompt_build hook", () => {
     await triggerHook(
       "before_prompt_build",
       {
-        rawMessage: "Tell me about my hobbies please.",
+        currentUserMessage: "Tell me about my hobbies please.",
         prompt: "",
         messages: [],
       },
@@ -431,7 +423,7 @@ describe("before_prompt_build hook", () => {
     const result = (await triggerHook(
       "before_prompt_build",
       {
-        rawMessage: "What outdoor activities do I enjoy?",
+        currentUserMessage: "What outdoor activities do I enjoy?",
         prompt: "",
         messages: [],
       },
@@ -459,7 +451,7 @@ describe("before_prompt_build hook", () => {
 
     await triggerHook(
       "before_prompt_build",
-      { rawMessage: "What do I like?", prompt: "", messages: [] },
+      { currentUserMessage: "What do I like?", prompt: "", messages: [] },
       { sessionKey: "agent:main:telegram:direct:U020" },
     );
 
@@ -482,7 +474,7 @@ describe("before_prompt_build hook", () => {
 
     const result = await triggerHook(
       "before_prompt_build",
-      { rawMessage: "What do I like?", prompt: "", messages: [] },
+      { currentUserMessage: "What do I like?", prompt: "", messages: [] },
       { sessionKey: "agent:main:telegram:direct:U021" },
     );
 
@@ -820,9 +812,10 @@ describe("session_end hook (#1726)", () => {
       dynamicBankId: true,
       retainEveryNTurns: 5,
       retainOverlapTurns: 0,
+      retainQueueFlushIntervalMs: 1000,
     });
     triggerSessionEnd = handle.trigger;
-    mod.default(handle.api);
+    mod.default.register!(handle.api);
     await handle.startServices();
   }, 30_000);
 
@@ -865,22 +858,36 @@ describe("session_end hook (#1726)", () => {
 
     expect(retainSpy).not.toHaveBeenCalled();
 
-    // session_end should force-flush the un-retained turns.
+    // session_end delivers metadata separately from its host-owned transcript reader.
     await triggerSessionEnd(
       "session_end",
       {
-        messages: [
-          { role: "user", content: "I just adopted a corgi named Pepper." },
-          { role: "assistant", content: "Pepper sounds adorable!" },
-          { role: "user", content: "She loves chasing tennis balls." },
-        ],
+        sessionId: "session-1726-short",
+        sessionKey: "sess-1726-short",
+        messageCount: 3,
+        reason: "reset",
       },
       {
-        messageProvider: "telegram",
-        senderId: "U1726A",
+        sessionId: "session-1726-short",
+        agentId: "main",
         sessionKey: "sess-1726-short",
+        endedTranscript: {
+          available: true,
+          readTail: async () => ({
+            messages: [
+              { role: "user", content: "I just adopted a corgi named Pepper." },
+              { role: "assistant", content: "Pepper sounds adorable!" },
+              { role: "user", content: "She loves chasing tennis balls." },
+            ],
+            totalMessages: 3,
+            truncated: false,
+          }),
+        },
       },
     );
+    await vi.waitFor(() => expect(retainSpy).toHaveBeenCalledOnce(), {
+      timeout: 2500,
+    });
 
     expect(retainSpy).toHaveBeenCalledOnce();
     const [, content] = retainSpy.mock.calls[0];
@@ -914,18 +921,18 @@ describe("session_end hook (#1726)", () => {
     retainSpy.mockReset();
     retainSpy.mockResolvedValue(OK_RETAIN);
 
-    // session_end after the boundary: nothing un-retained, must not duplicate.
+    // At a cadence boundary there is no outstanding tail and no reader is needed.
     await triggerSessionEnd(
       "session_end",
       {
-        messages: Array.from({ length: 5 }, (_, j) => ({
-          role: j % 2 === 0 ? "user" : "assistant",
-          content: `turn ${j + 1} message about hiking`,
-        })),
+        sessionId: "session-1726-aligned",
+        sessionKey: "sess-1726-aligned",
+        messageCount: 5,
+        reason: "reset",
       },
       {
-        messageProvider: "telegram",
-        senderId: "U1726B",
+        agentId: "main",
+        sessionId: "session-1726-aligned",
         sessionKey: "sess-1726-aligned",
       },
     );
@@ -940,16 +947,14 @@ describe("session_end hook (#1726)", () => {
     await triggerSessionEnd(
       "session_end",
       {
-        messages: [
-          {
-            role: "user",
-            content: "ephemeral message that never reached agent_end",
-          },
-        ],
+        sessionId: "session-1726-empty",
+        sessionKey: "sess-1726-empty",
+        messageCount: 0,
+        reason: "reset",
       },
       {
-        messageProvider: "telegram",
-        senderId: "U1726C",
+        agentId: "main",
+        sessionId: "session-1726-empty",
         sessionKey: "sess-1726-empty",
       },
     );
