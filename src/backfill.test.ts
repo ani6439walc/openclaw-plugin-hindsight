@@ -211,6 +211,13 @@ describe("backfill helpers", () => {
     expect(managerStop).toHaveBeenCalledTimes(1);
   });
 
+  it("falls back to absolute paths when canonicalization fails", async () => {
+    const { isDirectExecution } = await import("./backfill.js");
+    const missing = join(tmpdir(), "hindsight-missing", "backfill.js");
+    expect(isDirectExecution(missing, pathToFileURL(missing).href)).toBe(true);
+    expect(isDirectExecution("", pathToFileURL(missing).href)).toBe(false);
+  });
+
   it("treats a symlinked bin path as direct execution", async () => {
     const { isDirectExecution } = await import("./backfill.js");
     const dir = mkdtempSync(join(tmpdir(), "hindsight-backfill-bin-"));

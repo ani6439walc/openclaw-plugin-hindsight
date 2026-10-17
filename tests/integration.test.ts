@@ -7,7 +7,7 @@
  *
  * Requirements:
  *   HTTP mode:  Running Hindsight API at HINDSIGHT_API_URL (default: http://localhost:8888)
- *   Embed mode: hindsight-embed package at HINDSIGHT_EMBED_PACKAGE_PATH
+ *   Embed mode: uvx (or optional HINDSIGHT_EMBED_PACKAGE_PATH)
  *               + LLM credentials (HINDSIGHT_API_LLM_PROVIDER / HINDSIGHT_API_LLM_API_KEY)
  *
  * Run:
@@ -15,13 +15,15 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
-import { HindsightServer } from "@vectorize-io/hindsight-all";
+import { mkdir, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { createServer } from "node:net";
+import { randomUUID } from "node:crypto";
+import { HindsightServer, getEmbedCommand } from "@vectorize-io/hindsight-all";
 import { HindsightClient } from "@vectorize-io/hindsight-client";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 // ---------------------------------------------------------------------------
 // Test configuration (driven by environment variables)
@@ -33,10 +35,10 @@ const LLM_PROVIDER = process.env.HINDSIGHT_API_LLM_PROVIDER || "";
 const LLM_API_KEY = process.env.HINDSIGHT_API_LLM_API_KEY || "";
 const LLM_MODEL = process.env.HINDSIGHT_API_LLM_MODEL || "";
 
-// Embed package path – defaults to the sibling hindsight-embed directory in the repo
-const EMBED_PACKAGE_PATH =
-  process.env.HINDSIGHT_EMBED_PACKAGE_PATH ||
-  join(__dirname, "..", "..", "..", "hindsight-embed");
+// No source checkout is required: HindsightServer uses uvx by default.
+const EMBED_PACKAGE_PATH = process.env.HINDSIGHT_EMBED_PACKAGE_PATH;
+const RUN_PREFIX = `openclaw_test_${Date.now()}_${randomUUID().slice(0, 8)}`;
+const bankIds: string[] = [];
 
 // Port for the test embed daemon (different from production default 9077 to avoid conflicts)
 const EMBED_TEST_PORT = 19077;
@@ -45,8 +47,10 @@ const EMBED_TEST_PORT = 19077;
 // Helpers
 // ---------------------------------------------------------------------------
 
-function randomBankId(): string {
-  return `openclaw_test_${Math.random().toString(36).slice(2, 14)}`;
+function randomBankId(mode = "http"): string {
+  const id = `${RUN_PREFIX}_${mode}_${bankIds.length + 1}`;
+  bankIds.push(id);
+  return id;
 }
 
 async function waitForApi(url: string, maxMs = 5000): Promise<boolean> {
@@ -81,7 +85,13 @@ describe("openclaw integration — HTTP mode", () => {
       );
     }
 
-    client = new HindsightClient({ baseUrl: HINDSIGHT_API_URL });
+    client = new HindsightClient({
+      baseUrl: HINDSIGHT_API_URL,
+      apiKey: process.env.HINDSIGHT_API_TOKEN,
+    });
+    console.info(
+      `[Integration] HTTP version: ${JSON.stringify(await client.getVersion())}`,
+    );
   });
 
   it("should retain a conversation", async () => {
@@ -115,6 +125,7 @@ describe("openclaw integration — HTTP mode", () => {
 
   it("should recall from an empty bank without error", async () => {
     const bankId = randomBankId();
+    await client.createBank(bankId);
     const response = await client.recall(bankId, "What do I like?", {
       maxTokens: 512,
     });
@@ -141,7 +152,7 @@ describe("openclaw integration — HTTP mode", () => {
       bankId,
       "[role: user]\nMy favorite programming language is Python.\n[user:end]\n\n" +
         "[role: assistant]\nPython is a great choice!\n[assistant:end]",
-      { documentId: `session-${Date.now()}`, async: true },
+      { documentId: `session-${Date.now()}`, async: false },
     );
 
     const response = await client.recall(
@@ -153,11 +164,14 @@ describe("openclaw integration — HTTP mode", () => {
     );
 
     expect(response).toBeDefined();
-    expect(Array.isArray(response.results)).toBe(true);
+    expect(response.results.some((result) => /Python/i.test(result.text))).toBe(
+      true,
+    );
   });
 
   it("should use custom maxTokens in recall request", async () => {
     const bankId = randomBankId();
+    await client.createBank(bankId);
     const response = await client.recall(bankId, "anything", {
       maxTokens: 256,
     });
@@ -172,13 +186,14 @@ describe("openclaw integration — HTTP mode", () => {
       bankId,
       "[role: user]\nI enjoy reading science fiction books.\n[user:end]\n\n" +
         "[role: assistant]\nSounds like a great hobby!\n[assistant:end]",
-      { documentId: "mapping-test", async: true },
+      { documentId: "mapping-test", async: false },
     );
 
     const response = await client.recall(bankId, "What are my hobbies?", {
       maxTokens: 1024,
     });
 
+    expect(response.results.length).toBeGreaterThan(0);
     for (const result of response.results) {
       expect(typeof result.id).toBe("string");
       expect(typeof result.text).toBe("string");
@@ -194,44 +209,78 @@ describe("openclaw integration — embed mode", () => {
   let client: HindsightClient;
   let server: HindsightServer;
 
-  const hasEmbedCredentials = Boolean(LLM_PROVIDER && LLM_API_KEY);
-
   beforeAll(async () => {
-    if (!hasEmbedCredentials) {
-      console.warn(
-        "[Integration] Skipping embed mode tests: " +
-          "HINDSIGHT_API_LLM_PROVIDER and HINDSIGHT_API_LLM_API_KEY must both be set.",
+    if (!LLM_PROVIDER || !LLM_API_KEY) {
+      throw new Error(
+        "Embed tests require HINDSIGHT_API_LLM_PROVIDER and HINDSIGHT_API_LLM_API_KEY",
       );
-      return;
     }
-
+    // Probe by binding, so a non-HTTP listener is also treated as occupied.
+    await new Promise<void>((resolve, reject) => {
+      const probe = createServer();
+      probe.once("error", reject);
+      probe.listen(EMBED_TEST_PORT, "127.0.0.1", () =>
+        probe.close((error) => (error ? reject(error) : resolve())),
+      );
+    });
+    // Seed a private file before the SDK writes the profile (including ambient config).
+    const profileDir = join(homedir(), ".hindsight", "profiles");
+    await mkdir(profileDir, { recursive: true });
+    await writeFile(join(profileDir, `${RUN_PREFIX}.env`), "", {
+      mode: 0o600,
+      flag: "wx",
+    });
     server = new HindsightServer({
-      profile: "openclaw-test",
+      profile: RUN_PREFIX,
       port: EMBED_TEST_PORT,
       embedVersion: "latest",
       embedPackagePath: EMBED_PACKAGE_PATH,
+      readyTimeoutMs: 180_000,
       env: {
+        HINDSIGHT_API_LLM_BASE_URL: process.env.HINDSIGHT_API_LLM_BASE_URL,
         HINDSIGHT_API_LLM_PROVIDER: LLM_PROVIDER,
-        HINDSIGHT_API_LLM_API_KEY: LLM_API_KEY,
         HINDSIGHT_API_LLM_MODEL: LLM_MODEL || undefined,
         HINDSIGHT_EMBED_DAEMON_IDLE_TIMEOUT: "0",
       },
     });
 
-    await server.start();
+    try {
+      await server.start();
+    } catch (error) {
+      // The SDK includes command output in errors; never print credentials.
+      throw new Error(String(error).replaceAll(LLM_API_KEY, "[REDACTED]"));
+    }
 
     client = new HindsightClient({ baseUrl: server.getBaseUrl() });
-  }, 120_000); // daemon startup can take up to 2 minutes
+    console.info(
+      `[Integration] Embed version: ${JSON.stringify(await client.getVersion())}`,
+    );
+  }, 240_000); // A first uvx run may also resolve dependencies.
 
   afterAll(async () => {
-    if (server) {
+    if (!server) return;
+    try {
       await server.stop();
+      expect(await server.checkHealth()).toBe(false);
+    } finally {
+      const [command, ...args] = getEmbedCommand({
+        embedVersion: "latest",
+        embedPackagePath: EMBED_PACKAGE_PATH,
+      });
+      await promisify(execFile)(command, [
+        ...args,
+        "profile",
+        "delete",
+        RUN_PREFIX,
+      ]);
+      console.info(
+        `[Integration] Isolated embed data: ${join(homedir(), ".pg0", "instances", `hindsight-embed-${RUN_PREFIX}`)}`,
+      );
     }
   }, 30_000);
 
   it("should retain a conversation against the local daemon", async () => {
-    if (!hasEmbedCredentials) return;
-    const bankId = randomBankId();
+    const bankId = randomBankId("embed");
     const response = await client.retain(
       bankId,
       "[role: user]\nI love hiking in the mountains.\n[user:end]\n\n" +
@@ -242,8 +291,8 @@ describe("openclaw integration — embed mode", () => {
   }, 60_000);
 
   it("should recall from an empty bank against the local daemon", async () => {
-    if (!hasEmbedCredentials) return;
-    const bankId = randomBankId();
+    const bankId = randomBankId("embed");
+    await client.createBank(bankId);
     const response = await client.recall(bankId, "What do I like?", {
       maxTokens: 512,
     });
@@ -252,8 +301,7 @@ describe("openclaw integration — embed mode", () => {
   }, 60_000);
 
   it("should set bank mission against the local daemon", async () => {
-    if (!hasEmbedCredentials) return;
-    const bankId = randomBankId();
+    const bankId = randomBankId("embed");
     // Create bank by retaining first, then set mission
     await client.retain(bankId, "[role: user]\nHello\n[user:end]", {
       async: true,
@@ -266,18 +314,23 @@ describe("openclaw integration — embed mode", () => {
   }, 60_000);
 
   it("should retain and recall against the local daemon", async () => {
-    if (!hasEmbedCredentials) return;
-    const bankId = randomBankId();
+    const bankId = randomBankId("embed");
     await client.retain(
       bankId,
       "[role: user]\nMy cat is named Whiskers and she is 3 years old.\n[user:end]\n\n" +
         "[role: assistant]\nWhat a lovely name!\n[assistant:end]",
-      { documentId: `embed-e2e-${Date.now()}`, async: true },
+      { documentId: `embed-e2e-${Date.now()}`, async: false },
     );
     const response = await client.recall(bankId, "What is my cat's name?", {
       maxTokens: 1024,
     });
     expect(response).toBeDefined();
-    expect(Array.isArray(response.results)).toBe(true);
-  }, 60_000);
+    expect(
+      response.results.some((result) => /Whiskers/i.test(result.text)),
+    ).toBe(true);
+  }, 120_000);
 });
+
+afterAll(() =>
+  console.info(`[Integration] Retained test banks: ${bankIds.join(", ")}`),
+);

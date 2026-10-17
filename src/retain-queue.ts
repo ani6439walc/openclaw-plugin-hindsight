@@ -207,9 +207,6 @@ export class RetainQueue {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
-  removeMany(ids: string[]): void {
-    for (const id of ids) this.remove(id);
-  }
   ensureOperationId(id: string, operationId: string): string | undefined {
     let raw: string;
     try {
@@ -233,15 +230,6 @@ export class RetainQueue {
     return readdirSync(this.directory).filter((name) => name.endsWith(".json"))
       .length;
   }
-  cleanup(): number {
-    if (this.maxAgeMs < 0) return 0;
-    const expired = this.readAll().filter(
-      (item) => new Date(item.createdAt).getTime() < Date.now() - this.maxAgeMs,
-    );
-    this.removeMany(expired.map((item) => item.id));
-    return expired.length;
-  }
-  close(): void {}
   private hash(id: string): string {
     return createHash("sha256").update(id).digest("hex");
   }

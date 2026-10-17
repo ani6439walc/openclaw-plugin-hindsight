@@ -28,6 +28,14 @@ import type {
   RetainResponse,
 } from "@vectorize-io/hindsight-client";
 import type { OpenClawPluginApi, PluginConfig } from "../src/types.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+
+const RUN_PREFIX = `openclaw_hooks_${Date.now()}_${randomUUID().slice(0, 8)}`;
+const handles: MockApiHandle[] = [];
+const queueDirs: string[] = [];
 
 const HINDSIGHT_API_URL =
   process.env.HINDSIGHT_API_URL || "http://localhost:8888";
@@ -73,9 +81,16 @@ function createMockApi(
     stop(): Promise<void>;
   }[] = [];
 
+  const queueDir = mkdtempSync(join(tmpdir(), `${RUN_PREFIX}-`));
+  queueDirs.push(queueDir);
   const api: OpenClawPluginApi = {
     config: {},
-    pluginConfig: pluginConfig as PluginConfig,
+    pluginConfig: {
+      ...pluginConfig,
+      bankIdPrefix: `${RUN_PREFIX}-${handles.length}`,
+      retainQueuePath: join(queueDir, "retain.jsonl"),
+      hindsightApiToken: process.env.HINDSIGHT_API_TOKEN,
+    } as PluginConfig,
     logger: {
       info: (msg: string) => console.log(msg),
       warn: (msg: string) => console.warn(msg),
@@ -91,9 +106,9 @@ function createMockApi(
     },
   };
 
-  return {
+  const handle = {
     api,
-    async trigger(event, eventData, ctx) {
+    async trigger(event: string, eventData: unknown, ctx?: unknown) {
       const list = handlers.get(event) ?? [];
       let result: unknown;
       for (const h of list) result = await h(eventData, ctx);
@@ -106,6 +121,8 @@ function createMockApi(
       for (const svc of services) await svc.stop();
     },
   };
+  handles.push(handle);
+  return handle;
 }
 
 const EMPTY_RECALL: RecallResponse = {
@@ -155,21 +172,17 @@ function makeMemoryResult(text: string): MockMemoryResult {
 // Module-level state shared across all hook describe blocks
 // ---------------------------------------------------------------------------
 
-let apiReachable = false;
 let triggerHook: MockApiHandle["trigger"];
-let stopServicesFn: () => Promise<void>;
 // Typed loosely as MockInstance because vi.spyOn's generic form doesn't
 // play nicely with the hindsight-client class shape (method overloads).
 let recallSpy: MockInstance;
 let retainSpy: MockInstance;
 
 beforeAll(async () => {
-  apiReachable = await waitForApi(HINDSIGHT_API_URL, 8000);
-  if (!apiReachable) {
-    console.warn(
-      `[Hooks Integration] Hindsight API not reachable at ${HINDSIGHT_API_URL} – skipping hook tests.`,
+  if (!(await waitForApi(HINDSIGHT_API_URL, 8000))) {
+    throw new Error(
+      `[Hooks Integration] Hindsight API not reachable at ${HINDSIGHT_API_URL}`,
     );
-    return;
   }
 
   // Reset module registry so we get a fresh module with clean state.
@@ -193,7 +206,6 @@ beforeAll(async () => {
     // No bankMission — keeps init lean
   });
   triggerHook = handle.trigger;
-  stopServicesFn = handle.stopServices;
 
   // Load the plugin — registers hooks and starts background init.
   pluginFn.register!(handle.api);
@@ -215,7 +227,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   vi.restoreAllMocks();
-  if (stopServicesFn) await stopServicesFn().catch(() => {});
+  for (const handle of handles.toReversed()) await handle.stopServices();
+  for (const dir of queueDirs) rmSync(dir, { recursive: true, force: true });
+  console.info(`[Hooks Integration] Bank prefix: ${RUN_PREFIX}`);
 }, 15_000);
 
 afterEach(() => {
@@ -230,8 +244,6 @@ afterEach(() => {
 
 describe("before_prompt_build hook", () => {
   it("skips recall for excluded providers and returns undefined", async () => {
-    if (!apiReachable) return;
-
     const result = await triggerHook(
       "before_prompt_build",
       {
@@ -247,8 +259,6 @@ describe("before_prompt_build hook", () => {
   });
 
   it("skips recall when currentUserMessage is too short and returns undefined", async () => {
-    if (!apiReachable) return;
-
     const result = await triggerHook(
       "before_prompt_build",
       { currentUserMessage: "Hi", prompt: "Hi", messages: [] },
@@ -260,7 +270,6 @@ describe("before_prompt_build hook", () => {
   });
 
   it("returns undefined when recall finds no results", async () => {
-    if (!apiReachable) return;
     recallSpy.mockResolvedValue(EMPTY_RECALL);
 
     const result = await triggerHook(
@@ -278,7 +287,6 @@ describe("before_prompt_build hook", () => {
   });
 
   it("returns { prependContext } by default when recall returns results", async () => {
-    if (!apiReachable) return;
     recallSpy.mockResolvedValue({
       results: [makeMemoryResult("User likes Python")],
       entities: null,
@@ -309,7 +317,6 @@ describe("before_prompt_build hook", () => {
   });
 
   it("injects all memory result fields in the default prependContext", async () => {
-    if (!apiReachable) return;
     const mem = makeMemoryResult("User prefers dark mode");
     mem.tags = ["preference"];
     mem.entities = ["dark_mode"];
@@ -347,7 +354,6 @@ describe("before_prompt_build hook", () => {
   });
 
   it("extracts the inner query from an envelope-formatted prompt when currentUserMessage is absent", async () => {
-    if (!apiReachable) return;
     recallSpy.mockResolvedValue(EMPTY_RECALL);
 
     const envelopePrompt =
@@ -367,7 +373,6 @@ describe("before_prompt_build hook", () => {
   });
 
   it("passes a latest-priority contextual recall query and respects max query chars", async () => {
-    if (!apiReachable) return;
     recallSpy.mockResolvedValue(EMPTY_RECALL);
 
     await triggerHook(
@@ -393,7 +398,6 @@ describe("before_prompt_build hook", () => {
   });
 
   it("passes maxTokens to recall", async () => {
-    if (!apiReachable) return;
     recallSpy.mockResolvedValue(EMPTY_RECALL);
 
     await triggerHook(
@@ -412,7 +416,6 @@ describe("before_prompt_build hook", () => {
   });
 
   it("includes recalled memories in the default prependContext block", async () => {
-    if (!apiReachable) return;
     recallSpy.mockResolvedValue({
       results: [makeMemoryResult("User loves hiking")],
       entities: null,
@@ -436,7 +439,6 @@ describe("before_prompt_build hook", () => {
   });
 
   it("uses identity cached in before_dispatch when later hooks lack sender metadata", async () => {
-    if (!apiReachable) return;
     recallSpy.mockResolvedValue(EMPTY_RECALL);
 
     await triggerHook(
@@ -459,7 +461,6 @@ describe("before_prompt_build hook", () => {
   });
 
   it("skips recall when before_dispatch detects a provider mismatch for the session", async () => {
-    if (!apiReachable) return;
     recallSpy.mockResolvedValue(EMPTY_RECALL);
 
     await triggerHook(
@@ -489,8 +490,6 @@ describe("before_prompt_build hook", () => {
 
 describe("agent_end hook", () => {
   it("skips retain when success is false", async () => {
-    if (!apiReachable) return;
-
     await triggerHook(
       "agent_end",
       {
@@ -504,8 +503,6 @@ describe("agent_end hook", () => {
   });
 
   it("skips retain when messages array is empty", async () => {
-    if (!apiReachable) return;
-
     await triggerHook(
       "agent_end",
       { success: true, messages: [] },
@@ -516,8 +513,6 @@ describe("agent_end hook", () => {
   });
 
   it("skips retain for excluded providers", async () => {
-    if (!apiReachable) return;
-
     await triggerHook(
       "agent_end",
       {
@@ -531,7 +526,6 @@ describe("agent_end hook", () => {
   });
 
   it("calls retain with correctly formatted transcript for string content", async () => {
-    if (!apiReachable) return;
     retainSpy.mockResolvedValue(OK_RETAIN);
 
     await triggerHook(
@@ -567,7 +561,6 @@ describe("agent_end hook", () => {
   });
 
   it("includes session key in documentId", async () => {
-    if (!apiReachable) return;
     retainSpy.mockResolvedValue(OK_RETAIN);
 
     await triggerHook(
@@ -589,7 +582,6 @@ describe("agent_end hook", () => {
   });
 
   it("populates metadata with channel_type, channel_id, and sender_id", async () => {
-    if (!apiReachable) return;
     retainSpy.mockResolvedValue(OK_RETAIN);
 
     await triggerHook(
@@ -616,7 +608,6 @@ describe("agent_end hook", () => {
   });
 
   it("uses identity cached in before_dispatch for retain metadata when agent_end ctx is sparse", async () => {
-    if (!apiReachable) return;
     retainSpy.mockResolvedValue(OK_RETAIN);
 
     await triggerHook(
@@ -646,7 +637,6 @@ describe("agent_end hook", () => {
   });
 
   it("keeps provider fallback without backfilling channel_type when only session parsing provides it", async () => {
-    if (!apiReachable) return;
     retainSpy.mockResolvedValue(OK_RETAIN);
 
     await triggerHook(
@@ -667,7 +657,6 @@ describe("agent_end hook", () => {
   });
 
   it("strips <hindsight_memory_plugin> tags from content before retaining", async () => {
-    if (!apiReachable) return;
     retainSpy.mockResolvedValue(OK_RETAIN);
 
     const contentWithMemories =
@@ -695,7 +684,6 @@ describe("agent_end hook", () => {
   });
 
   it("strips <relevant_memories> tags from content before retaining", async () => {
-    if (!apiReachable) return;
     retainSpy.mockResolvedValue(OK_RETAIN);
 
     const contentWithLegacyTag =
@@ -721,7 +709,6 @@ describe("agent_end hook", () => {
   });
 
   it("handles array content blocks (structured message format)", async () => {
-    if (!apiReachable) return;
     retainSpy.mockResolvedValue(OK_RETAIN);
 
     await triggerHook(
@@ -752,7 +739,6 @@ describe("agent_end hook", () => {
   });
 
   it("retains a multi-turn conversation in the correct transcript format", async () => {
-    if (!apiReachable) return;
     retainSpy.mockResolvedValue(OK_RETAIN);
 
     await triggerHook(
@@ -804,8 +790,7 @@ describe("session_end hook (#1726)", () => {
   let triggerSessionEnd: MockApiHandle["trigger"];
 
   beforeAll(async () => {
-    if (!apiReachable) return;
-
+    await handles[0].stopServices();
     const mod = await import("../src/index.js");
     const handle = createMockApi({
       hindsightApiUrl: HINDSIGHT_API_URL,
@@ -820,7 +805,6 @@ describe("session_end hook (#1726)", () => {
   }, 30_000);
 
   it("flushes un-retained turns when session_end fires before the cadence boundary", async () => {
-    if (!apiReachable) return;
     retainSpy.mockResolvedValue(OK_RETAIN);
 
     // 2 agent_end ticks with retainEveryNTurns=5 — neither hits the cadence
@@ -834,6 +818,7 @@ describe("session_end hook (#1726)", () => {
         ],
       },
       {
+        agentId: "main",
         messageProvider: "telegram",
         senderId: "U1726A",
         sessionKey: "sess-1726-short",
@@ -850,6 +835,7 @@ describe("session_end hook (#1726)", () => {
         ],
       },
       {
+        agentId: "main",
         messageProvider: "telegram",
         senderId: "U1726A",
         sessionKey: "sess-1726-short",
@@ -895,7 +881,6 @@ describe("session_end hook (#1726)", () => {
   });
 
   it("is a no-op when session_end fires on a cadence boundary (already retained)", async () => {
-    if (!apiReachable) return;
     retainSpy.mockResolvedValue(OK_RETAIN);
 
     // 5 turns triggers cadence retain at turn 5.
@@ -910,6 +895,7 @@ describe("session_end hook (#1726)", () => {
           })),
         },
         {
+          agentId: "main",
           messageProvider: "telegram",
           senderId: "U1726B",
           sessionKey: "sess-1726-aligned",
@@ -941,7 +927,6 @@ describe("session_end hook (#1726)", () => {
   });
 
   it("is a no-op when session_end fires for a session with no agent_end turns", async () => {
-    if (!apiReachable) return;
     retainSpy.mockResolvedValue(OK_RETAIN);
 
     await triggerSessionEnd(

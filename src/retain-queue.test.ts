@@ -7,7 +7,6 @@ import {
   buildRetainRequest,
   createAsyncRetainOperationId,
   flushRetainQueue,
-  scopeClient,
 } from "./index.js";
 import { RetainQueue } from "./retain-queue.js";
 
@@ -45,16 +44,10 @@ describe("RetainQueue operation id persistence", () => {
       .mockRejectedValueOnce(new Error("acknowledgement lost"))
       .mockResolvedValueOnce({});
     const rawClient = { retain } as unknown as HindsightClient;
-    const bankClient = scopeClient(rawClient, "bank-1");
-
-    await expect(bankClient.retain(request, "supported")).rejects.toThrow(
-      "acknowledgement lost",
-    );
-    const initialOperationId = retain.mock.calls[0][2].operationId;
-
     const queue = new RetainQueue({ filePath: queuePath });
     queue.enqueue("bank-1", request);
-    queue.close();
+    await flushRetainQueue(queue, rawClient, "supported");
+    const initialOperationId = retain.mock.calls[0][2].operationId;
 
     const reloadedQueue = new RetainQueue({ filePath: queuePath });
     expect(reloadedQueue.peek()).toHaveLength(1);
