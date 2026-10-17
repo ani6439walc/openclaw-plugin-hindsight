@@ -13,7 +13,8 @@ import type {
 } from "./types.js";
 
 type Service = { start(): Promise<void>; stop(): Promise<void> };
-type HookName = "before_prompt_build" | "agent_end" | "session_end";
+type HookName =
+  "before_dispatch" | "before_prompt_build" | "agent_end" | "session_end";
 type PromptEvent = Parameters<PluginHookHandler<"before_prompt_build">>[0];
 type SessionEndEvent = Parameters<PluginHookHandler<"session_end">>[0];
 type EndedTranscript = NonNullable<PluginHookSessionContext["endedTranscript"]>;
@@ -184,6 +185,124 @@ describe("official OpenClaw plugin contracts", () => {
       "unresolved-root-bank",
     );
   });
+
+  it.each(["discord", undefined, ""])(
+    "recalls the same channel bank after dispatch (event.channel: %j)",
+    async (channel) => {
+      const fixture = await register({
+        autoRecall: true,
+        autoRetain: false,
+        dynamicBankId: true,
+        dynamicBankGranularity: ["provider", "channel"],
+      });
+      await fixture.service.start();
+      const recall = vi
+        .spyOn(HindsightClient.prototype, "recall")
+        .mockResolvedValue({ results: [] });
+      const room = "1533386280426147982";
+      const sessionKey = `agent:main:discord:channel:${room}`;
+      await fixture.hook("before_dispatch")(
+        { content: "What is the project launch date?", channel, sessionKey },
+        {
+          sessionKey,
+          // Official dispatch contexts use a provider here; also exercise the
+          // reviewer's conversation-id payload when event.channel is missing.
+          channelId: channel ? "discord" : room,
+          conversationId: room,
+          senderId: "contract-user",
+        },
+      );
+      await fixture.hook("before_prompt_build")(
+        { prompt: "What is the project launch date?", messages: [] },
+        { sessionKey },
+      );
+      expect(recall).toHaveBeenCalledOnce();
+      expect(recall.mock.calls[0][0]).toBe(`discord::channel%3A${room}`);
+      expect(
+        fixture.resolveAndCacheIdentity({ sessionKey }).resolvedCtx,
+      ).toMatchObject({
+        messageProvider: "discord",
+        channelId: `channel:${room}`,
+        senderId: "contract-user",
+      });
+    },
+  );
+
+  it("infers a Telegram direct sender without leaking dispatch channelId into identity", async () => {
+    const fixture = await register({
+      autoRecall: true,
+      autoRetain: false,
+      dynamicBankId: true,
+      dynamicBankGranularity: ["provider", "channel", "user"],
+    });
+    await fixture.service.start();
+    const recall = vi
+      .spyOn(HindsightClient.prototype, "recall")
+      .mockResolvedValue({ results: [] });
+    const sessionKey = "agent:main:telegram:direct:123";
+    await fixture.hook("before_dispatch")(
+      { content: "What is the project launch date?", channel: "telegram" },
+      { sessionKey, channelId: "telegram", conversationId: "123" },
+    );
+    await fixture.hook("before_prompt_build")(
+      { prompt: "What is the project launch date?", messages: [] },
+      { sessionKey },
+    );
+    expect(recall).toHaveBeenCalledOnce();
+    expect(recall.mock.calls[0][0]).toBe("telegram::direct%3A123::123");
+  });
+
+  it("still skips recall when an explicit dispatch provider disagrees with the session", async () => {
+    const fixture = await register({
+      autoRecall: true,
+      autoRetain: false,
+      dynamicBankId: true,
+      dynamicBankGranularity: ["provider", "channel"],
+    });
+    await fixture.service.start();
+    const recall = vi.spyOn(HindsightClient.prototype, "recall");
+    const sessionKey = "agent:main:discord:channel:contract-room";
+    await fixture.hook("before_dispatch")(
+      { content: "What is the project launch date?", channel: "webchat" },
+      { sessionKey, channelId: "webchat", senderId: "contract-user" },
+    );
+    await fixture.hook("before_prompt_build")(
+      { prompt: "What is the project launch date?", messages: [] },
+      { sessionKey, messageProvider: "discord", senderId: "contract-user" },
+    );
+    expect(recall).not.toHaveBeenCalled();
+  });
+
+  it.each(["agent:main:main", "agent:main:dashboard:contract-session"])(
+    "defers ambiguous dispatch identity until the prompt hook (%s)",
+    async (sessionKey) => {
+      const fixture = await register({
+        autoRecall: true,
+        autoRetain: false,
+        dynamicBankId: true,
+        dynamicBankGranularity: ["agent", "provider", "channel"],
+      });
+      await fixture.service.start();
+      const recall = vi
+        .spyOn(HindsightClient.prototype, "recall")
+        .mockResolvedValue({ results: [] });
+      await fixture.hook("before_dispatch")(
+        { content: "What is the project launch date?", sessionKey },
+        { sessionKey, channelId: "1533386280426147982" },
+      );
+      await fixture.hook("before_prompt_build")(
+        { prompt: "What is the project launch date?", messages: [] },
+        {
+          sessionKey,
+          messageProvider: "discord",
+          channelId: "contract-room",
+          senderId: "contract-user",
+        },
+      );
+      expect(recall).toHaveBeenCalledOnce();
+      expect(recall.mock.calls[0][0]).toBe("main::discord::contract-room");
+    },
+  );
 
   it("treats an explicitly empty currentUserMessage as a non-text request", async () => {
     const fixture = await register({ autoRecall: true, autoRetain: false });

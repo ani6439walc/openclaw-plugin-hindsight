@@ -3433,15 +3433,20 @@ function registerPlugin(api: OpenClawPluginApi) {
           return;
         }
 
+        const parsedProvider = parseSessionKey(sessionKey).provider;
         const dispatchChannel =
           (typeof event?.channel === "string" ? event.channel : undefined) ||
-          ctx?.channelId ||
-          parseSessionKey(sessionKey).provider;
+          (parsedProvider === "main" ? undefined : parsedProvider);
+        // Without a known provider, let the prompt hook complete the identity.
+        if (!dispatchChannel) return;
         const { resolvedCtx, skipReason } = resolveAndCacheIdentity({
           sessionKey,
+          // Dispatch channelId names the provider, unlike the agent context's
+          // conversation id. Keep conversation routing in the existing parser
+          // and cache so bank ids retain their current format.
           ctx: {
-            ...ctx,
             sessionKey,
+            messageProvider: dispatchChannel,
             senderId:
               (typeof event?.senderId === "string"
                 ? event.senderId
