@@ -80,7 +80,6 @@ describe("persistent retain outbox", () => {
       tags: ["discord"],
       metadata: { turn: 1 },
     });
-    queue.close();
 
     const recovered = new RetainQueue({ filePath });
     expect(recovered.size()).toBe(1);

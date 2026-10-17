@@ -697,26 +697,13 @@ export async function runCli(
   );
 }
 
-function resolveSymlinks(path: string): string {
-  const seen = new Set<string>();
-  let current = path;
-  while (true) {
-    if (seen.has(current)) return current;
-    seen.add(current);
-    let target: string;
-    try {
-      target = realpathSync(current);
-    } catch {
-      return current;
-    }
-    if (target === current) return current;
-    current = target;
-  }
-}
-
 function canonicalizeExecutionPath(path: string): string {
   const resolved = resolve(path);
-  return resolveSymlinks(resolved);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
 }
 
 export function isDirectExecution(

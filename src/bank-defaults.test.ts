@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { HindsightClient } from "@vectorize-io/hindsight-client";
+import { HindsightClient } from "@vectorize-io/hindsight-client";
 import type { PluginConfig } from "./types.js";
 import {
   applyConfiguredBankDefaults,
@@ -9,7 +9,6 @@ import {
   normalizeDispositionTrait,
   normalizeEntityLabels,
   normalizeRetainExtractionMode,
-  patchBankConfig,
 } from "./bank-defaults.js";
 
 const clientOpts = { baseUrl: "http://localhost:8888", apiKey: "test-token" };
@@ -127,110 +126,99 @@ describe("normalizers", () => {
 });
 
 describe("applyConfiguredBankDefaults", () => {
-  const originalFetch = global.fetch;
-
   beforeEach(() => {
-    global.fetch = vi.fn();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}")));
   });
 
   afterEach(() => {
-    global.fetch = originalFetch;
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
   it("is a no-op when no defaults are configured", async () => {
-    const createBank = vi.fn();
-    const client = { createBank } as unknown as HindsightClient;
-
-    await applyConfiguredBankDefaults(
-      client,
-      "agent-slack-U123",
-      {},
-      clientOpts,
-    );
-
+    const client = new HindsightClient(clientOpts);
+    const createBank = vi.spyOn(client, "createBank");
+    await applyConfiguredBankDefaults(client, "agent-slack-U123", {});
     expect(createBank).not.toHaveBeenCalled();
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it("sends createBank and config patch for a derived dynamic bank", async () => {
-    const createBank = vi.fn().mockResolvedValue({});
-    const client = { createBank } as unknown as HindsightClient;
-    vi.mocked(global.fetch).mockResolvedValue(
-      new Response("{}", { status: 200 }),
-    );
+  it.each([
+    { labels: ["person", "org"] },
+    { labels: { attributes: [{ name: "person", description: "Human" }] } },
+  ])(
+    "preserves the configured labels shape through the SDK: %j",
+    async ({ labels }) => {
+      const client = new HindsightClient(clientOpts);
+      const createBank = vi
+        .spyOn(client, "createBank")
+        .mockResolvedValue({} as never);
+      await applyConfiguredBankDefaults(client, "bank /dynamic", {
+        retainExtractionMode: "verbose",
+        enableObservations: true,
+        enableAutoConsolidation: false,
+        entityLabels: labels,
+        retainMission: "Keep architectural decisions.",
+      });
+      expect(createBank).toHaveBeenCalledWith("bank /dynamic", {
+        retainMission: "Keep architectural decisions.",
+        retainExtractionMode: "verbose",
+        enableObservations: true,
+      });
+      const request = vi.mocked(global.fetch).mock.calls[0][0] as Request;
+      expect(request.url).toBe(
+        "http://localhost:8888/v1/default/banks/bank%20%2Fdynamic/config",
+      );
+      expect(request.method).toBe("PATCH");
+      expect(request.headers.get("Authorization")).toBe("Bearer test-token");
+      expect(await request.json()).toEqual({
+        updates: {
+          entity_labels: labels,
+          enable_auto_consolidation: false,
+        },
+      });
+    },
+  );
 
-    const config: PluginConfig = {
-      retainExtractionMode: "verbose",
-      enableObservations: true,
+  it("omits unset fields and credentials", async () => {
+    const client = new HindsightClient({ baseUrl: clientOpts.baseUrl });
+    await applyConfiguredBankDefaults(client, "bank", {
       enableAutoConsolidation: true,
-      entityLabels: ["person", "org"],
-      retainMission: "Keep architectural decisions.",
-    };
-
-    await applyConfiguredBankDefaults(
-      client,
-      "agent-slack-U123",
-      config,
-      clientOpts,
-    );
-
-    expect(createBank).toHaveBeenCalledWith("agent-slack-U123", {
-      retainMission: "Keep architectural decisions.",
-      retainExtractionMode: "verbose",
-      enableObservations: true,
     });
-    expect(global.fetch).toHaveBeenCalledWith(
-      "http://localhost:8888/v1/default/banks/agent-slack-U123/config",
-      expect.objectContaining({
-        method: "PATCH",
-        body: JSON.stringify({
-          updates: {
-            entity_labels: ["person", "org"],
-            enable_auto_consolidation: true,
-          },
-        }),
-      }),
-    );
+    const request = vi.mocked(global.fetch).mock.calls[0][0] as Request;
+    expect(request.headers.has("Authorization")).toBe(false);
+    expect(await request.json()).toEqual({
+      updates: { enable_auto_consolidation: true },
+    });
   });
 
   it("applies missions via createBank without config patch when only missions are set", async () => {
-    const createBank = vi.fn().mockResolvedValue({});
-    const client = { createBank } as unknown as HindsightClient;
-
-    await applyConfiguredBankDefaults(
-      client,
-      "openclaw",
-      { bankMission: "Reflect.", retainMission: "Retain." },
-      clientOpts,
-    );
-
+    const client = new HindsightClient(clientOpts);
+    const createBank = vi
+      .spyOn(client, "createBank")
+      .mockResolvedValue({} as never);
+    await applyConfiguredBankDefaults(client, "openclaw", {
+      bankMission: "Reflect.",
+      retainMission: "Retain.",
+    });
     expect(createBank).toHaveBeenCalledWith("openclaw", {
       reflectMission: "Reflect.",
       retainMission: "Retain.",
     });
     expect(global.fetch).not.toHaveBeenCalled();
   });
-});
 
-describe("patchBankConfig", () => {
-  const originalFetch = global.fetch;
-
-  beforeEach(() => {
-    global.fetch = vi.fn();
-  });
-
-  afterEach(() => {
-    global.fetch = originalFetch;
-    vi.restoreAllMocks();
-  });
-
-  it("throws on non-OK responses", async () => {
+  it("propagates SDK config update failures", async () => {
     vi.mocked(global.fetch).mockResolvedValue(
-      new Response("nope", { status: 422 }),
+      new Response(JSON.stringify({ detail: "invalid labels" }), {
+        status: 422,
+        headers: { "Content-Type": "application/json" },
+      }),
     );
     await expect(
-      patchBankConfig("bank-a", { entity_labels: ["x"] }, clientOpts),
-    ).rejects.toThrow(/patchBankConfig failed \(422\)/);
+      applyConfiguredBankDefaults(new HindsightClient(clientOpts), "bank", {
+        entityLabels: ["x"],
+      }),
+    ).rejects.toThrow(/updateBankConfig failed/);
   });
 });

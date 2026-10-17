@@ -1,7 +1,4 @@
-import type {
-  HindsightClient,
-  HindsightClientOptions,
-} from "@vectorize-io/hindsight-client";
+import type { HindsightClient } from "@vectorize-io/hindsight-client";
 import type { PluginConfig } from "./types.js";
 
 export type RetainExtractionMode =
@@ -108,8 +105,7 @@ export function buildCreateBankDefaults(
 }
 
 /**
- * Fields applied via PATCH /banks/{id}/config because createBank does not
- * accept them in the generated client wrapper.
+ * Fields applied through updateBankConfig rather than createBank.
  */
 export function buildBankConfigApiUpdates(
   config: PluginConfig,
@@ -135,32 +131,6 @@ export function hasConfiguredBankDefaults(config: PluginConfig): boolean {
   );
 }
 
-export async function patchBankConfig(
-  bankId: string,
-  updates: Record<string, unknown>,
-  options: HindsightClientOptions,
-): Promise<void> {
-  const url = `${options.baseUrl.replace(/\/$/, "")}/v1/default/banks/${encodeURIComponent(bankId)}/config`;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-  if (options.apiKey) {
-    headers.Authorization = `Bearer ${options.apiKey}`;
-  }
-
-  const response = await fetch(url, {
-    method: "PATCH",
-    headers,
-    body: JSON.stringify({ updates }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`patchBankConfig failed (${response.status}): ${text}`);
-  }
-}
-
 /**
  * Stamp configured missions and bank defaults onto a bank exactly once per
  * process lifetime (caller tracks the set). No-op when no defaults are configured.
@@ -169,7 +139,6 @@ export async function applyConfiguredBankDefaults(
   client: HindsightClient,
   bankId: string,
   config: PluginConfig,
-  clientOpts: HindsightClientOptions,
 ): Promise<void> {
   const createPayload = buildCreateBankDefaults(config);
   const configUpdates = buildBankConfigApiUpdates(config);
@@ -186,10 +155,13 @@ export async function applyConfiguredBankDefaults(
   }
 
   if (Object.keys(configUpdates).length > 0) {
-    await patchBankConfig(
-      bankId,
-      configUpdates as Record<string, unknown>,
-      clientOpts,
-    );
+    await client.updateBankConfig(bankId, {
+      // Older servers also accept an attributes wrapper. The SDK's narrower
+      // type must not change the payload accepted by existing plugin configs.
+      entityLabels: configUpdates.entity_labels as Parameters<
+        HindsightClient["updateBankConfig"]
+      >[1]["entityLabels"],
+      enableAutoConsolidation: configUpdates.enable_auto_consolidation,
+    });
   }
 }

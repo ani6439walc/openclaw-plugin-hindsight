@@ -30,6 +30,7 @@ const plugin = (await import("./index.js")).default;
 const { isAppendModeSupported, getDocumentIdBootToken } =
   await import("./index.js");
 
+import { HindsightClient } from "@vectorize-io/hindsight-client";
 import type { OpenClawPluginApi } from "./types.js";
 
 interface StartedService {
@@ -79,6 +80,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   globalThis.fetch = originalFetch;
   rmSync(tempDir, { recursive: true, force: true });
 });
@@ -181,6 +184,100 @@ describe("local-daemon mode parity (#3686)", () => {
           line.includes("retain queue: 1 items pending"),
         ),
       ).toBe(true);
+    } finally {
+      await service().stop();
+    }
+  });
+});
+
+describe("shared initialization and recovery", () => {
+  it("recreates the local client and reapplies static defaults after a failed health check", async () => {
+    const fetchMock = mockVersionEndpoint({ api_version: "0.9.1" });
+    daemonCheckHealth.mockResolvedValueOnce(false);
+    const createBank = vi
+      .spyOn(HindsightClient.prototype, "createBank")
+      .mockResolvedValue({} as never);
+    const { api, service } = makeApi({
+      llmProvider: "openai",
+      llmApiKey: "test-key",
+      dynamicBankId: false,
+      bankId: "recovery",
+      retainMission: "Remember facts.",
+      retainQueuePath: join(tempDir, "queue.jsonl"),
+    });
+    plugin.register!(api);
+    try {
+      await service().start();
+      expect(daemonStart).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
+        `${DAEMON_BASE_URL}/version`,
+        `${DAEMON_BASE_URL}/version`,
+      ]);
+      expect(createBank).toHaveBeenCalledTimes(2);
+      expect(createBank).toHaveBeenLastCalledWith("recovery", {
+        retainMission: "Remember facts.",
+      });
+    } finally {
+      await service().stop();
+    }
+  });
+
+  it("retries a failed local startup through the same initialization path", async () => {
+    mockVersionEndpoint({ api_version: "0.9.1" });
+    daemonStart.mockRejectedValueOnce(new Error("daemon not ready"));
+    const { api, service } = makeApi({
+      llmProvider: "openai-codex",
+      retainQueuePath: join(tempDir, "queue.jsonl"),
+    });
+    plugin.register!(api);
+    try {
+      await service().start();
+      expect(daemonStart).toHaveBeenCalledTimes(2);
+      expect(isAppendModeSupported()).toBe(true);
+    } finally {
+      await service().stop();
+    }
+  });
+
+  it("preserves external health retries and reapplies defaults on recovery", async () => {
+    vi.useFakeTimers();
+    const urls: string[] = [];
+    let healthCalls = 0;
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.endsWith("/health") && ++healthCalls >= 2 && healthCalls <= 4) {
+        throw new Error("API temporarily unavailable");
+      }
+      return new Response(JSON.stringify({ api_version: "0.9.1" }));
+    }) as typeof fetch;
+    const createBank = vi
+      .spyOn(HindsightClient.prototype, "createBank")
+      .mockResolvedValue({} as never);
+    const { api, service } = makeApi({
+      hindsightApiUrl: "https://hindsight.test",
+      dynamicBankId: false,
+      bankId: "recovery",
+      retainMission: "Remember facts.",
+      retainQueuePath: join(tempDir, "queue.jsonl"),
+    });
+    plugin.register!(api);
+    try {
+      const pending = service().start();
+      await vi.advanceTimersByTimeAsync(4_000);
+      await pending;
+      expect(healthCalls).toBe(5);
+      expect(urls).toEqual([
+        "https://hindsight.test/health",
+        "https://hindsight.test/version",
+        "https://hindsight.test/health",
+        "https://hindsight.test/health",
+        "https://hindsight.test/health",
+        "https://hindsight.test/health",
+        "https://hindsight.test/version",
+      ]);
+      expect(daemonStart).not.toHaveBeenCalled();
+      expect(createBank).toHaveBeenCalledTimes(2);
     } finally {
       await service().stop();
     }

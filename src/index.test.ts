@@ -3722,3 +3722,56 @@ describe("knowledge_page and memory tools registration", () => {
     });
   });
 });
+
+describe("filterInternalAndOperationalTurns boundaries", () => {
+  it("preserves leading messages and tool results without splitting their user turn", () => {
+    const leading = { role: "system", content: "Session instructions" };
+    const user = {
+      role: "user",
+      content: "Please remember my preference for PostgreSQL.",
+    };
+    const synthetic = {
+      role: "user",
+      content: [{ type: "tool_result", content: "done" }],
+    };
+    const assistant = { role: "assistant", content: "Noted." };
+    const messages = [leading, user, synthetic, assistant];
+    expect(filterInternalAndOperationalTurns(messages)).toEqual(messages);
+  });
+
+  it("drops a whole internal turn including synthetic tool results and resumes at the next user", () => {
+    const leading = { role: "assistant", content: "Earlier response" };
+    const internal = {
+      role: "user",
+      content: "[Subagent Context] Internal coordination",
+    };
+    const synthetic = {
+      role: "user",
+      content: [{ type: "tool_result", content: "internal result" }],
+    };
+    const user = {
+      role: "user",
+      content: "Remember my preference for PostgreSQL.",
+    };
+    expect(
+      filterInternalAndOperationalTurns([
+        leading,
+        internal,
+        synthetic,
+        { role: "assistant", content: "Internal reply" },
+        user,
+      ]),
+    ).toEqual([leading, user]);
+  });
+
+  it("discards leading messages when no genuine user turn survives", () => {
+    const leading = { role: "assistant", content: "Earlier response" };
+    expect(filterInternalAndOperationalTurns([leading])).toEqual([]);
+    expect(
+      filterInternalAndOperationalTurns([
+        leading,
+        { role: "user", content: "[Subagent Context] Internal coordination" },
+      ]),
+    ).toEqual([]);
+  });
+});

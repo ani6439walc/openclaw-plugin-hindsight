@@ -140,11 +140,7 @@ describe("official OpenClaw plugin contracts", () => {
       },
       queued() {
         const queue = new RetainQueue({ filePath: queuePath });
-        try {
-          return queue.peek();
-        } finally {
-          queue.close();
-        }
+        return queue.peek();
       },
     };
   }
