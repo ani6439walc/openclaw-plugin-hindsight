@@ -9,7 +9,7 @@ packageExtensions:
     dependencies:
       "@openclaw/proxyline": "0.3.12"
 minimumReleaseAgeExclude:
-  - openclaw@2026.10.3
-  - "@openclaw/ai@2026.10.3"
+  - openclaw@2026.10.4
+  - "@openclaw/ai@2026.10.4"
   - "@vectorize-io/hindsight-all@1.0.0"
   - "@vectorize-io/hindsight-client@1.0.0"
