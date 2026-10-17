@@ -1,11 +1,13 @@
 import type {
   InputProvenance,
-  MoltbotPluginAPI,
+  OpenClawPluginApi,
   OpenClawMessage,
   OpenClawMessageContentBlock,
   PluginConfig,
   PluginHookAgentContext,
-  PluginToolContext,
+  PluginHookEvent,
+  PluginHookSessionContext,
+  OpenClawPluginToolContext,
   MemoryResult,
   RetainRequest,
 } from "./types.js";
@@ -22,7 +24,10 @@ import {
   compileSessionPatterns,
   matchesSessionPattern,
 } from "./session-patterns.js";
-import { parseSessionFile } from "./session-file.js";
+import {
+  definePluginEntry,
+  type AnyAgentTool,
+} from "openclaw/plugin-sdk/plugin-entry";
 import { createHash, randomUUID } from "crypto";
 import { join } from "path";
 import * as log from "./logger.js";
@@ -100,13 +105,13 @@ export const REGISTERED_KNOWLEDGE_TOOL_NAMES: readonly string[] = [
   KNOWLEDGE_PAGE_TOOL_DEFINITION.name,
 ];
 
-export async function executeKnowledgePageAction(
+export async function executeKnowledgePageAction<Result>(
   rawToolsByName: Map<
     string,
-    { execute: (params: Record<string, unknown>) => Promise<unknown> }
+    { execute: (params: Record<string, unknown>) => Promise<Result> }
   >,
   params: Record<string, unknown>,
-): Promise<unknown> {
+): Promise<Result> {
   const action = String(params?.action || "")
     .toLowerCase()
     .trim();
@@ -690,44 +695,6 @@ export async function flushRetainQueue(
 const DEFAULT_RECALL_PROMPT_PREAMBLE =
   "Relevant memories from past conversations (prioritize recent when conflicting). Only use memories that are directly useful to continue this conversation; ignore the rest:";
 
-/**
- * The messages a retain should work from, for a `session_end` event that carries none.
- *
- * OpenClaw's `buildSessionEndHookPayload()` sends `sessionId`, `sessionKey`,
- * `messageCount`, `durationMs`, `reason`, `sessionFile` and the next session's ids -
- * no `messages` array, and a `context` holding only ids. The forced flush added for
- * #1726 therefore ended at its own "no messages" guard on every session close, and the
- * turns after the last cadence boundary were never retained (#4341).
- *
- * The transcript the event points at is the source: one synchronous read, which is what
- * the shutdown drain's shared 2s budget allows, and extraction still happens
- * asynchronously in the bank's operation queue. `undefined` when there is no readable
- * transcript, which leaves the caller's existing guard to skip the flush as before.
- *
- * `/new` matters here: OpenClaw emits the previous session's `session_end` lazily, on
- * the first turn of its successor, so the old messages are gone from the live session
- * entry by then and the file is the only copy.
- */
-export function sessionEndMessagesFromTranscript(
-  event: unknown,
-  read: typeof parseSessionFile = parseSessionFile,
-): unknown[] | undefined {
-  const payload = (event ?? {}) as Record<string, any>;
-  const sessionFile =
-    typeof payload.sessionFile === "string" ? payload.sessionFile : undefined;
-  if (!sessionFile) return undefined;
-  const agentId =
-    typeof payload.context?.agentId === "string" ? payload.context.agentId : "";
-  try {
-    const messages = read(sessionFile, agentId).messages;
-    return messages.length > 0 ? messages : undefined;
-  } catch {
-    // A missing, truncated or unreadable transcript is not an error worth failing the
-    // session close over; the caller skips the flush exactly as it did before.
-    return undefined;
-  }
-}
-
 export function formatCurrentTimeForRecall(date = new Date()): string {
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
@@ -797,7 +764,7 @@ async function lazyReinit(configOverride?: PluginConfig): Promise<void> {
   }
 }
 
-// Global access for hooks (Moltbot loads hooks separately)
+// Process-local state shared by hooks and the service owner.
 if (typeof global !== "undefined") {
   (global as any).__hindsightClient = {
     getClient: () => client,
@@ -1340,15 +1307,15 @@ export function stripRuntimeEnvelope(content: string): string {
 }
 
 /**
- * Extract a recall query from a hook event's rawMessage or prompt.
+ * Sanitize the current request, or a legacy prepared prompt when unavailable.
  *
- * Prefers rawMessage (clean user text). Falls back to prompt, stripping
+ * Prefers the current request. Falls back to the legacy prompt, stripping
  * envelope formatting (System: lines, [Channel ...] headers, [from: X] footers).
  *
  * Returns null when no usable query (< 5 chars) can be extracted.
  */
 export function extractRecallQuery(
-  rawMessage: string | undefined,
+  currentRequest: string | undefined,
   prompt: string | undefined,
 ): string | null {
   // Reject known metadata/system message patterns — these are not user queries
@@ -1364,7 +1331,7 @@ export function extractRecallQuery(
     // 2026.8.1+ marker form: a leftover header line is metadata, not a query.
     isInboundMetaHeaderLine(s.split("\n")[0] ?? "");
 
-  let recallQuery = rawMessage;
+  let recallQuery = currentRequest;
   // Strip sender metadata envelope before any checks
   if (recallQuery) {
     recallQuery = stripRuntimeEnvelope(
@@ -2001,6 +1968,7 @@ function isInternalProvenance(prov: InputProvenance | undefined): boolean {
   if (!prov) return false;
   return (
     prov.kind === "inter_session" ||
+    prov.kind === "internal_system" ||
     prov.sourceChannel === "internal" ||
     prov.sourceRole === "subagent" ||
     prov.sourceTool === "subagent_settle" ||
@@ -2299,13 +2267,16 @@ export interface KnowledgeToolBankResolution {
  * identity must not silently route to the shared default or anonymous bank.
  */
 export function resolveBankIdForKnowledgeTools(
-  toolCtx: PluginToolContext,
+  toolCtx: OpenClawPluginToolContext,
   pluginConfig: PluginConfig,
 ): KnowledgeToolBankResolution {
   const hookCtx: PluginHookAgentContext = {
     agentId: toolCtx.agentId,
     sessionKey: toolCtx.sessionKey,
     workspaceDir: toolCtx.workspaceDir,
+    senderId: toolCtx.requesterSenderId,
+    messageProvider: toolCtx.messageChannel ?? toolCtx.deliveryContext?.channel,
+    channelId: toolCtx.nativeChannelId ?? toolCtx.deliveryContext?.to,
   };
 
   // An explicitly mapped agent needs no identity resolution: its bank does not
@@ -2831,9 +2802,10 @@ export function normalizeRetainTags(value: unknown): string[] {
   return normalized;
 }
 
-export function getPluginConfig(api: MoltbotPluginAPI): PluginConfig {
-  const config =
-    api.config.plugins?.entries?.["hindsight-memory"]?.config || {};
+export function getPluginConfig(
+  api: Pick<OpenClawPluginApi, "pluginConfig">,
+): PluginConfig {
+  const config = (api.pluginConfig ?? {}) as PluginConfig;
 
   const senderPrefixPattern =
     typeof config.senderPrefixPattern === "string" &&
@@ -3016,9 +2988,9 @@ export function getPluginConfig(api: MoltbotPluginAPI): PluginConfig {
 // on the same api object while allowing fresh registration on new api objects.
 // Does not reintroduce issue #1029 because WeakSet.has() checks object identity,
 // not a module-level boolean.
-const _registeredApis = new WeakSet<MoltbotPluginAPI>();
+const _registeredApis = new WeakSet<OpenClawPluginApi>();
 
-export default function (api: MoltbotPluginAPI) {
+function registerPlugin(api: OpenClawPluginApi) {
   if (_registeredApis.has(api)) {
     debug(
       "[Hindsight] Plugin entry skipped (this api instance already registered)",
@@ -3443,66 +3415,63 @@ export default function (api: MoltbotPluginAPI) {
     debug("[Hindsight] Registering agent hooks...");
     log.info("registering agent hooks");
 
-    api.on(
-      "before_dispatch",
-      async (event: any, ctx?: PluginHookAgentContext) => {
-        try {
-          if (isInterSessionInternalEvent(ctx)) {
-            debug(
-              "[Hindsight] before_dispatch skipping inter-session / internal subagent event",
-            );
-            return;
-          }
-
-          const sessionKey =
-            ctx?.sessionKey ??
-            (typeof event?.sessionKey === "string"
-              ? event.sessionKey
-              : undefined);
-          if (!sessionKey) {
-            return;
-          }
-
-          const dispatchChannel =
-            (typeof event?.channel === "string" ? event.channel : undefined) ||
-            ctx?.messageProvider ||
-            parseSessionKey(sessionKey).provider;
-          const { resolvedCtx, skipReason } = resolveAndCacheIdentity({
-            sessionKey,
-            ctx: {
-              ...ctx,
-              sessionKey,
-              senderId:
-                (typeof event?.senderId === "string"
-                  ? event.senderId
-                  : undefined) || ctx?.senderId,
-            },
-            dispatchChannel,
-            pluginConfig,
-          });
-
-          if (skipReason) {
-            debug(
-              `[Hindsight] before_dispatch marked session ${sessionKey} to skip this turn: ${formatIdentitySkipReason(skipReason)}`,
-            );
-            logSkipOnce("dispatch", sessionKey, skipReason);
-            return;
-          }
-          if (
-            !resolvedCtx?.senderId ||
-            typeof resolvedCtx.senderId !== "string"
-          ) {
-            return;
-          }
-
+    api.on("before_dispatch", async (event, ctx) => {
+      try {
+        if (isInterSessionInternalEvent(ctx)) {
           debug(
-            `[Hindsight] before_dispatch cached identity for ${sessionKey}: ${resolvedCtx.messageProvider}/${resolvedCtx.channelId} sender=${resolvedCtx.senderId}`,
+            "[Hindsight] before_dispatch skipping inter-session / internal subagent event",
           );
-        } catch (error) {
-          log.warn(`before_dispatch identity cache error: ${error}`);
+          return;
         }
-      },
-    );
+
+        const sessionKey =
+          ctx?.sessionKey ??
+          (typeof event?.sessionKey === "string"
+            ? event.sessionKey
+            : undefined);
+        if (!sessionKey) {
+          return;
+        }
+
+        const dispatchChannel =
+          (typeof event?.channel === "string" ? event.channel : undefined) ||
+          ctx?.channelId ||
+          parseSessionKey(sessionKey).provider;
+        const { resolvedCtx, skipReason } = resolveAndCacheIdentity({
+          sessionKey,
+          ctx: {
+            ...ctx,
+            sessionKey,
+            senderId:
+              (typeof event?.senderId === "string"
+                ? event.senderId
+                : undefined) || ctx?.senderId,
+          },
+          dispatchChannel,
+          pluginConfig,
+        });
+
+        if (skipReason) {
+          debug(
+            `[Hindsight] before_dispatch marked session ${sessionKey} to skip this turn: ${formatIdentitySkipReason(skipReason)}`,
+          );
+          logSkipOnce("dispatch", sessionKey, skipReason);
+          return;
+        }
+        if (
+          !resolvedCtx?.senderId ||
+          typeof resolvedCtx.senderId !== "string"
+        ) {
+          return;
+        }
+
+        debug(
+          `[Hindsight] before_dispatch cached identity for ${sessionKey}: ${resolvedCtx.messageProvider}/${resolvedCtx.channelId} sender=${resolvedCtx.senderId}`,
+        );
+      } catch (error) {
+        log.warn(`before_dispatch identity cache error: ${error}`);
+      }
+    });
 
     // No `before_agent_start` registration: the callback used to call
     // `resolveAndCacheIdentity()` and emit a debug log, but `before_dispatch`
@@ -3513,368 +3482,307 @@ export default function (api: MoltbotPluginAPI) {
     // hot path. (#1354)
 
     // Auto-recall: Inject relevant memories before agent processes the message
-    // Hook signature: (event, ctx) where event has {prompt, messages?} and ctx has agent context
-    api.on(
-      "before_prompt_build",
-      async (event: any, ctx?: PluginHookAgentContext) => {
-        const recallGeneration = serviceGeneration;
-        const recallController =
-          serviceAbortController ??
-          (recallGeneration === 0 ? preServiceHookController : null);
-        const isCurrentRecall = () =>
-          recallController !== null &&
-          (serviceAbortController ?? preServiceHookController) ===
-            recallController &&
-          recallGeneration === serviceGeneration &&
-          !recallController.signal.aborted;
-        if (!isCurrentRecall()) return;
-        // Optional perf instrumentation (#1406). Captured here at hook entry so
-        // the early-return paths below don't influence the measurement of slow
-        // recall calls — perf lines are only emitted on the recall path.
-        const perfHookStart = pluginConfig.debugPerfTiming ? Date.now() : 0;
-        let finishRecall: (terminal: {
-          state: "completed" | "failed" | "cancelled" | "skipped";
-          resultCount?: number;
-          reason?:
-            "timeout" | "error" | "service_stopped" | "client_unavailable";
-        }) => void = () => {};
-        const cancelRecall = () =>
-          finishRecall({ state: "cancelled", reason: "service_stopped" });
-        try {
-          // Check if this is an inter-session / subagent completion internal event
-          if (isInterSessionInternalEvent(ctx)) {
-            debug(
-              `[Hindsight] Skipping recall: inter-session / internal subagent event (${ctx?.inputProvenance?.sourceTool ?? ctx?.inputProvenance?.kind ?? ctx?.trigger})`,
-            );
-            return;
-          }
+    // The SDK supplies prepared messages and the current request separately.
+    api.on("before_prompt_build", async (event, ctx) => {
+      const recallGeneration = serviceGeneration;
+      const recallController =
+        serviceAbortController ??
+        (recallGeneration === 0 ? preServiceHookController : null);
+      const isCurrentRecall = () =>
+        recallController !== null &&
+        (serviceAbortController ?? preServiceHookController) ===
+          recallController &&
+        recallGeneration === serviceGeneration &&
+        !recallController.signal.aborted;
+      if (!isCurrentRecall()) return;
+      // Optional perf instrumentation (#1406). Captured here at hook entry so
+      // the early-return paths below don't influence the measurement of slow
+      // recall calls — perf lines are only emitted on the recall path.
+      const perfHookStart = pluginConfig.debugPerfTiming ? Date.now() : 0;
+      let finishRecall: (terminal: {
+        state: "completed" | "failed" | "cancelled" | "skipped";
+        resultCount?: number;
+        reason?: "timeout" | "error" | "service_stopped" | "client_unavailable";
+      }) => void = () => {};
+      const cancelRecall = () =>
+        finishRecall({ state: "cancelled", reason: "service_stopped" });
+      try {
+        // Check if this is an inter-session / subagent completion internal event
+        if (isInterSessionInternalEvent(ctx)) {
+          debug(
+            `[Hindsight] Skipping recall: inter-session / internal subagent event (${ctx?.inputProvenance?.sourceTool ?? ctx?.inputProvenance?.kind ?? ctx?.trigger})`,
+          );
+          return;
+        }
 
-          // Check if this provider is excluded
+        // Check if this provider is excluded
+        if (
+          ctx?.messageProvider &&
+          pluginConfig.excludeProviders?.includes(ctx.messageProvider)
+        ) {
+          debug(
+            `[Hindsight] Skipping recall for excluded provider: ${ctx.messageProvider}`,
+          );
+          return;
+        }
+
+        // Session pattern filtering
+        const sessionKey = ctx?.sessionKey;
+        if (sessionKey) {
+          const ignorePatterns = compileSessionPatterns(
+            pluginConfig.ignoreSessionPatterns ?? [],
+          );
           if (
-            ctx?.messageProvider &&
-            pluginConfig.excludeProviders?.includes(ctx.messageProvider)
+            ignorePatterns.length > 0 &&
+            matchesSessionPattern(sessionKey, ignorePatterns)
           ) {
             debug(
-              `[Hindsight] Skipping recall for excluded provider: ${ctx.messageProvider}`,
+              `[Hindsight] Skipping recall: session '${sessionKey}' matches ignoreSessionPatterns`,
             );
             return;
           }
-
-          // Session pattern filtering
-          const sessionKey = ctx?.sessionKey;
-          if (sessionKey) {
-            const ignorePatterns = compileSessionPatterns(
-              pluginConfig.ignoreSessionPatterns ?? [],
+          const skipStateless = pluginConfig.skipStatelessSessions !== false;
+          if (skipStateless) {
+            const statelessPatterns = compileSessionPatterns(
+              pluginConfig.statelessSessionPatterns ?? [],
             );
             if (
-              ignorePatterns.length > 0 &&
-              matchesSessionPattern(sessionKey, ignorePatterns)
+              statelessPatterns.length > 0 &&
+              matchesSessionPattern(sessionKey, statelessPatterns)
             ) {
               debug(
-                `[Hindsight] Skipping recall: session '${sessionKey}' matches ignoreSessionPatterns`,
+                `[Hindsight] Skipping recall: session '${sessionKey}' matches statelessSessionPatterns (skipStatelessSessions=true)`,
               );
               return;
             }
-            const skipStateless = pluginConfig.skipStatelessSessions !== false;
-            if (skipStateless) {
-              const statelessPatterns = compileSessionPatterns(
-                pluginConfig.statelessSessionPatterns ?? [],
-              );
-              if (
-                statelessPatterns.length > 0 &&
-                matchesSessionPattern(sessionKey, statelessPatterns)
-              ) {
-                debug(
-                  `[Hindsight] Skipping recall: session '${sessionKey}' matches statelessSessionPatterns (skipStatelessSessions=true)`,
-                );
-                return;
-              }
-            }
           }
+        }
 
-          // Skip auto-recall when disabled (agent has its own recall tool)
-          if (!pluginConfig.autoRecall) {
-            debug("[Hindsight] Auto-recall disabled via config, skipping");
-            return;
-          }
+        // Skip auto-recall when disabled (agent has its own recall tool)
+        if (!pluginConfig.autoRecall) {
+          debug("[Hindsight] Auto-recall disabled via config, skipping");
+          return;
+        }
 
-          const sessionKeyForCache =
-            ctx?.sessionKey ??
-            (typeof event?.sessionKey === "string"
-              ? event.sessionKey
-              : undefined);
-          const skipTurnReason = sessionKeyForCache
-            ? skipHindsightTurnBySession.get(sessionKeyForCache)
-            : undefined;
-          if (
-            skipTurnReason &&
-            !isRetryableIdentitySkipReason(skipTurnReason)
-          ) {
-            debug(
-              `[Hindsight] Skipping recall for session ${sessionKeyForCache}: ${formatIdentitySkipReason(skipTurnReason)}`,
-            );
-            logSkipOnce("recall", sessionKeyForCache, skipTurnReason);
-            return;
-          }
-
-          const senderIdFromPrompt = !ctx?.senderId
-            ? extractSenderIdFromText(event.prompt ?? event.rawMessage ?? "")
-            : undefined;
-          const {
-            resolvedCtx: resolvedCtxForRecall,
-            skipReason: identitySkipReason,
-          } = resolveAndCacheIdentity({
-            sessionKey: sessionKeyForCache,
-            ctx,
-            senderIdHint: senderIdFromPrompt,
-            pluginConfig,
-          });
-          if (identitySkipReason) {
-            debug(
-              `[Hindsight] Skipping recall for session ${sessionKeyForCache}: ${formatIdentitySkipReason(identitySkipReason)}`,
-            );
-            logSkipOnce("recall", sessionKeyForCache, identitySkipReason);
-            return;
-          }
-
-          const bankId = deriveBankId(resolvedCtxForRecall, pluginConfig);
+        const sessionKeyForCache = ctx.sessionKey;
+        const skipTurnReason = sessionKeyForCache
+          ? skipHindsightTurnBySession.get(sessionKeyForCache)
+          : undefined;
+        if (skipTurnReason && !isRetryableIdentitySkipReason(skipTurnReason)) {
           debug(
-            `[Hindsight] before_prompt_build - bank: ${bankId}, channel: ${resolvedCtxForRecall?.messageProvider}/${resolvedCtxForRecall?.channelId}`,
+            `[Hindsight] Skipping recall for session ${sessionKeyForCache}: ${formatIdentitySkipReason(skipTurnReason)}`,
           );
-          debug(`[Hindsight] event keys: ${Object.keys(event).join(", ")}`);
+          logSkipOnce("recall", sessionKeyForCache, skipTurnReason);
+          return;
+        }
+
+        const senderIdFromPrompt = !ctx?.senderId
+          ? extractSenderIdFromText(event.prompt)
+          : undefined;
+        const {
+          resolvedCtx: resolvedCtxForRecall,
+          skipReason: identitySkipReason,
+        } = resolveAndCacheIdentity({
+          sessionKey: sessionKeyForCache,
+          ctx,
+          senderIdHint: senderIdFromPrompt,
+          pluginConfig,
+        });
+        if (identitySkipReason) {
           debug(
-            `[Hindsight] event.context keys: ${Object.keys(event.context ?? {}).join(", ")}`,
+            `[Hindsight] Skipping recall for session ${sessionKeyForCache}: ${formatIdentitySkipReason(identitySkipReason)}`,
           );
+          logSkipOnce("recall", sessionKeyForCache, identitySkipReason);
+          return;
+        }
 
-          // Get the user's latest message for recall — only the raw user text, not the full prompt
-          // rawMessage is clean user text; prompt includes envelope, system events, media notes, etc.
+        const bankId = deriveBankId(resolvedCtxForRecall, pluginConfig);
+        debug(
+          `[Hindsight] before_prompt_build - bank: ${bankId}, channel: ${resolvedCtxForRecall?.messageProvider}/${resolvedCtxForRecall?.channelId}`,
+        );
+        debug(`[Hindsight] event keys: ${Object.keys(event).join(", ")}`);
+        // A present empty request means image-only input or continuation. Never
+        // reconstruct it from history or runtime context in the prepared prompt.
+        const currentRequest = event.currentUserMessage;
+        if (currentRequest !== undefined && !currentRequest.trim()) return;
+        const extracted = extractRecallQuery(
+          currentRequest,
+          currentRequest === undefined ? event.prompt : undefined,
+        );
+        if (!extracted) {
           debug(
-            `[Hindsight] extractRecallQuery input lengths - raw: ${event.rawMessage?.length ?? 0}, prompt: ${event.prompt?.length ?? 0}`,
+            "[Hindsight] extractRecallQuery returned null, skipping recall",
           );
-          const extracted = extractRecallQuery(event.rawMessage, event.prompt);
-          if (!extracted) {
-            debug(
-              "[Hindsight] extractRecallQuery returned null, skipping recall",
-            );
-            return;
-          }
-          if (isEphemeralOperationalText(extracted)) {
-            debug(
-              "[Hindsight] Recall query is operational/ephemeral noise, skipping recall",
-            );
-            return;
-          }
+          return;
+        }
+        if (isEphemeralOperationalText(extracted)) {
           debug(
-            `[Hindsight] extractRecallQuery result length: ${extracted.length}`,
+            "[Hindsight] Recall query is operational/ephemeral noise, skipping recall",
           );
-          const recallContextTurns = pluginConfig.recallContextTurns ?? 1;
-          const recallMaxQueryChars = pluginConfig.recallMaxQueryChars ?? 800;
-          const sessionMessages =
-            event.context?.sessionEntry?.messages ?? event.messages ?? [];
-          const messageCount = sessionMessages.length;
+          return;
+        }
+        debug(
+          `[Hindsight] extractRecallQuery result length: ${extracted.length}`,
+        );
+        const recallContextTurns = pluginConfig.recallContextTurns ?? 1;
+        const recallMaxQueryChars = pluginConfig.recallMaxQueryChars ?? 800;
+        const sessionMessages = event.messages;
+        const messageCount = sessionMessages.length;
+        debug(
+          `[Hindsight] event.messages count: ${messageCount}, roles: ${sessionMessages.map((m: any) => m.role).join(",")}`,
+        );
+        if (recallContextTurns > 1 && messageCount === 0) {
           debug(
-            `[Hindsight] event.messages count: ${messageCount}, roles: ${sessionMessages.map((m: any) => m.role).join(",")}`,
+            "[Hindsight] recallContextTurns > 1 but event.messages is empty — prior context unavailable at before_agent_start for this provider",
           );
-          if (recallContextTurns > 1 && messageCount === 0) {
-            debug(
-              "[Hindsight] recallContextTurns > 1 but event.messages is empty — prior context unavailable at before_agent_start for this provider",
-            );
-          }
-          const recallRoles = pluginConfig.recallRoles ?? ["user", "assistant"];
-          const composedPrompt = composeRecallQuery(
-            extracted,
-            sessionMessages,
-            recallContextTurns,
-            recallRoles,
-          );
-          let prompt = truncateRecallQuery(
-            composedPrompt,
-            extracted,
-            recallMaxQueryChars,
-          );
+        }
+        const recallRoles = pluginConfig.recallRoles ?? ["user", "assistant"];
+        const composedPrompt = composeRecallQuery(
+          extracted,
+          sessionMessages,
+          recallContextTurns,
+          recallRoles,
+        );
+        let prompt = truncateRecallQuery(
+          composedPrompt,
+          extracted,
+          recallMaxQueryChars,
+        );
 
-          // Final defensive cap
-          if (prompt.length > recallMaxQueryChars) {
-            prompt = prompt.substring(0, recallMaxQueryChars);
-          }
+        // Final defensive cap
+        if (prompt.length > recallMaxQueryChars) {
+          prompt = prompt.substring(0, recallMaxQueryChars);
+        }
 
-          // Progress is best-effort telemetry, never a dependency of memory recall.
-          const recallId = randomUUID();
-          const progressStart = Date.now();
-          let progressFinished = false;
-          const emitProgress = (details: Record<string, unknown>) => {
-            try {
-              if (!ctx?.runId) return;
-              ctx.hookInvocation?.assertActive();
-              const emitted = emitAgentEvent({
-                runId: ctx.runId,
-                stream: "plugin:hindsight-memory",
-                sessionKey: sessionKeyForCache,
-                data: {
-                  kind: "hindsight.recall",
-                  pluginId: "hindsight-memory",
-                  recallId,
-                  ...(sessionKeyForCache === undefined
-                    ? {}
-                    : { sessionKey: sessionKeyForCache }),
-                  ...details,
-                },
-              });
-              void Promise.resolve(emitted).catch(() => {});
-            } catch {
-              // Failed subscribers must not interrupt recall.
-            }
-          };
-          finishRecall = (terminal) => {
-            if (progressFinished) return;
-            progressFinished = true;
-            emitProgress({
-              ...terminal,
-              durationMs: Math.max(0, Date.now() - progressStart),
-            });
-          };
-          emitProgress({ state: "started" });
-          recallController?.signal.addEventListener("abort", cancelRecall, {
-            once: true,
-          });
-          if (!isCurrentRecall()) {
-            cancelRecall();
-            return;
-          }
-
-          // Wait for client to be ready
-          const clientGlobal = (global as any).__hindsightClient;
-          if (!clientGlobal) {
-            finishRecall({ state: "skipped", reason: "client_unavailable" });
-            debug(
-              "[Hindsight] Client global not available, skipping auto-recall",
-            );
-            return;
-          }
-
-          await clientGlobal.waitForReady();
-          if (!isCurrentRecall()) {
-            cancelRecall();
-            return;
-          }
-
-          // Get client configured for this context's bank (async to handle mission setup)
-          const client =
-            await clientGlobal.getClientForContext(resolvedCtxForRecall);
-          if (!isCurrentRecall()) {
-            cancelRecall();
-            return;
-          }
-          if (!client) {
-            finishRecall({ state: "skipped", reason: "client_unavailable" });
-            debug("[Hindsight] Client not initialized, skipping auto-recall");
-            return;
-          }
-
-          debug(
-            `[Hindsight] Auto-recall for bank ${bankId}, full query:\n---\n${prompt}\n---`,
-          );
-
-          // Recall with deduplication: reuse in-flight request for same bank
-          const normalizedPrompt = prompt
-            .trim()
-            .toLowerCase()
-            .replace(/\s+/g, " ");
-          const queryHash = createHash("sha256")
-            .update(normalizedPrompt)
-            .digest("hex")
-            .slice(0, 16);
-          const recallKey = `${bankId}::${queryHash}`;
-          const existing = inflightRecalls.get(recallKey);
-          let recallPromise: Promise<RecallResponse>;
-          if (existing) {
-            debug(`[Hindsight] Reusing in-flight recall for bank ${bankId}`);
-            recallPromise = existing;
-          } else {
-            const recallTimeoutMs =
-              pluginConfig.recallTimeoutMs ?? DEFAULT_RECALL_TIMEOUT_MS;
-            recallPromise = client.recall(
-              {
-                query: prompt,
-                maxTokens: pluginConfig.recallMaxTokens || 1024,
-                budget: pluginConfig.recallBudget,
-                types: pluginConfig.recallTypes,
-                preferObservations: pluginConfig.preferObservations,
-                minScores: pluginConfig.recallMinScores,
+        // Progress is best-effort telemetry, never a dependency of memory recall.
+        const recallId = randomUUID();
+        const progressStart = Date.now();
+        let progressFinished = false;
+        const emitProgress = (details: Record<string, unknown>) => {
+          try {
+            if (!ctx?.runId) return;
+            ctx.hookInvocation?.assertActive();
+            const emitted = emitAgentEvent({
+              runId: ctx.runId,
+              stream: "plugin:hindsight-memory",
+              sessionKey: sessionKeyForCache,
+              data: {
+                kind: "hindsight.recall",
+                pluginId: "hindsight-memory",
+                recallId,
+                ...(sessionKeyForCache === undefined
+                  ? {}
+                  : { sessionKey: sessionKeyForCache }),
+                ...details,
               },
-              recallTimeoutMs,
-              recallController?.signal,
-            );
-            inflightRecalls.set(recallKey, recallPromise);
-            void recallPromise
-              .catch(() => {})
-              .finally(() => {
-                // An old generation can settle after start() installed a successor.
-                if (inflightRecalls.get(recallKey) === recallPromise)
-                  inflightRecalls.delete(recallKey);
-              });
+            });
+            void Promise.resolve(emitted).catch(() => {});
+          } catch {
+            // Failed subscribers must not interrupt recall.
           }
+        };
+        finishRecall = (terminal) => {
+          if (progressFinished) return;
+          progressFinished = true;
+          emitProgress({
+            ...terminal,
+            durationMs: Math.max(0, Date.now() - progressStart),
+          });
+        };
+        emitProgress({ state: "started" });
+        recallController?.signal.addEventListener("abort", cancelRecall, {
+          once: true,
+        });
+        if (!isCurrentRecall()) {
+          cancelRecall();
+          return;
+        }
 
-          const recallStart = pluginConfig.debugPerfTiming ? Date.now() : 0;
-          const response = await recallPromise;
-          if (!isCurrentRecall()) {
-            cancelRecall();
-            return;
-          }
-          const recallElapsedMs = pluginConfig.debugPerfTiming
-            ? Date.now() - recallStart
-            : 0;
-
-          if (!response.results || response.results.length === 0) {
-            finishRecall({ state: "completed", resultCount: 0 });
-            if (pluginConfig.debugPerfTiming) {
-              log.info(
-                formatHookPerf(
-                  "before_prompt_build",
-                  Date.now() - perfHookStart,
-                  {
-                    recall_main: `${recallElapsedMs}ms`,
-                    source: existing ? "reused" : "fresh",
-                    results: 0,
-                  },
-                ),
-              );
-            }
-            debug("[Hindsight] No memories found for auto-recall");
-            return;
-          }
-
+        // Wait for client to be ready
+        const clientGlobal = (global as any).__hindsightClient;
+        if (!clientGlobal) {
+          finishRecall({ state: "skipped", reason: "client_unavailable" });
           debug(
-            `[Hindsight] Raw recall response (${response.results.length} results before topK):\n${response.results.map((r: any, i: number) => `  [${i}] score=${r.score?.toFixed(3) ?? "n/a"} type=${r.type ?? "n/a"}: ${JSON.stringify(r.content ?? r.text ?? r).substring(0, 200)}`).join("\n")}`,
+            "[Hindsight] Client global not available, skipping auto-recall",
           );
+          return;
+        }
 
-          const results = pluginConfig.recallTopK
-            ? response.results.slice(0, pluginConfig.recallTopK)
-            : response.results;
+        await clientGlobal.waitForReady();
+        if (!isCurrentRecall()) {
+          cancelRecall();
+          return;
+        }
 
-          debug(
-            `[Hindsight] After topK (${pluginConfig.recallTopK ?? "unlimited"}): ${results.length} results injected`,
+        // Get client configured for this context's bank (async to handle mission setup)
+        const client =
+          await clientGlobal.getClientForContext(resolvedCtxForRecall);
+        if (!isCurrentRecall()) {
+          cancelRecall();
+          return;
+        }
+        if (!client) {
+          finishRecall({ state: "skipped", reason: "client_unavailable" });
+          debug("[Hindsight] Client not initialized, skipping auto-recall");
+          return;
+        }
+
+        debug(
+          `[Hindsight] Auto-recall for bank ${bankId}, full query:\n---\n${prompt}\n---`,
+        );
+
+        // Recall with deduplication: reuse in-flight request for same bank
+        const normalizedPrompt = prompt
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, " ");
+        const queryHash = createHash("sha256")
+          .update(normalizedPrompt)
+          .digest("hex")
+          .slice(0, 16);
+        const recallKey = `${bankId}::${queryHash}`;
+        const existing = inflightRecalls.get(recallKey);
+        let recallPromise: Promise<RecallResponse>;
+        if (existing) {
+          debug(`[Hindsight] Reusing in-flight recall for bank ${bankId}`);
+          recallPromise = existing;
+        } else {
+          const recallTimeoutMs =
+            pluginConfig.recallTimeoutMs ?? DEFAULT_RECALL_TIMEOUT_MS;
+          recallPromise = client.recall(
+            {
+              query: prompt,
+              maxTokens: pluginConfig.recallMaxTokens || 1024,
+              budget: pluginConfig.recallBudget,
+              types: pluginConfig.recallTypes,
+              preferObservations: pluginConfig.preferObservations,
+              minScores: pluginConfig.recallMinScores,
+            },
+            recallTimeoutMs,
+            recallController?.signal,
           );
+          inflightRecalls.set(recallKey, recallPromise);
+          void recallPromise
+            .catch(() => {})
+            .finally(() => {
+              // An old generation can settle after start() installed a successor.
+              if (inflightRecalls.get(recallKey) === recallPromise)
+                inflightRecalls.delete(recallKey);
+            });
+        }
 
-          // Format memories as a bullet list (text + type + date + occurred window +
-          // [doc:<document_id>], each part present only when the memory carries it)
-          const memoriesFormatted = formatMemories(results);
+        const recallStart = pluginConfig.debugPerfTiming ? Date.now() : 0;
+        const response = await recallPromise;
+        if (!isCurrentRecall()) {
+          cancelRecall();
+          return;
+        }
+        const recallElapsedMs = pluginConfig.debugPerfTiming
+          ? Date.now() - recallStart
+          : 0;
 
-          const contextMessage = `<hindsight_memory_plugin>
-${pluginConfig.recallPromptPreamble || DEFAULT_RECALL_PROMPT_PREAMBLE}
-Current time - ${formatCurrentTimeForRecall()}
-
-${memoriesFormatted}
-</hindsight_memory_plugin>`;
-
-          debug(
-            `[Hindsight] Auto-recall: Injecting ${results.length} memories from bank ${bankId}`,
-          );
-          log.info(
-            `injecting ${results.length} memories into context (bank: ${bankId})`,
-          );
-          log.trackRecall(bankId, results.length);
-
+        if (!response.results || response.results.length === 0) {
+          finishRecall({ state: "completed", resultCount: 0 });
           if (pluginConfig.debugPerfTiming) {
             log.info(
               formatHookPerf(
@@ -3883,76 +3791,120 @@ ${memoriesFormatted}
                 {
                   recall_main: `${recallElapsedMs}ms`,
                   source: existing ? "reused" : "fresh",
-                  results: results.length,
+                  results: 0,
                 },
               ),
             );
           }
-
-          // Keep recalled memories outside the system prompt by default so the
-          // provider can reuse its stable prompt prefix across turns. Users who
-          // need system-level memory context can still opt into prepend or append.
-          finishRecall({ state: "completed", resultCount: results.length });
-          const position = pluginConfig.recallInjectionPosition ?? "user";
-          switch (position) {
-            case "append":
-              return { appendSystemContext: contextMessage };
-            case "user":
-              return { prependContext: contextMessage };
-            case "prepend":
-            default:
-              return { prependSystemContext: contextMessage };
-          }
-        } catch (error) {
-          if (!isCurrentRecall()) {
-            cancelRecall();
-          } else {
-            finishRecall({
-              state: "failed",
-              reason:
-                error instanceof DOMException && error.name === "TimeoutError"
-                  ? "timeout"
-                  : "error",
-            });
-          }
-          if (error instanceof DOMException && error.name === "TimeoutError") {
-            log.warn(
-              `[Hindsight] Auto-recall timed out after ${pluginConfig.recallTimeoutMs ?? DEFAULT_RECALL_TIMEOUT_MS}ms, skipping memory injection`,
-            );
-          } else if (error instanceof Error && error.name === "AbortError") {
-            // An AbortError now has two sources. The deadline is handled above as a
-            // TimeoutError; this branch is reached when the service was stopped or
-            // restarted mid-recall, which is not a timeout — quoting recallTimeoutMs
-            // there reports a deadline that never elapsed, with a number unrelated
-            // to the time actually spent. (#4450)
-            if (recallController?.signal.aborted) {
-              debug(
-                "[Hindsight] Auto-recall cancelled: service stopped, skipping memory injection",
-              );
-            } else {
-              log.warn(
-                `[Hindsight] Auto-recall aborted after ${pluginConfig.recallTimeoutMs ?? DEFAULT_RECALL_TIMEOUT_MS}ms, skipping memory injection`,
-              );
-            }
-          } else {
-            log.error("auto-recall error", error);
-          }
+          debug("[Hindsight] No memories found for auto-recall");
           return;
-        } finally {
-          recallController?.signal.removeEventListener("abort", cancelRecall);
         }
-      },
-    );
+
+        debug(
+          `[Hindsight] Raw recall response (${response.results.length} results before topK):\n${response.results.map((r: any, i: number) => `  [${i}] score=${r.score?.toFixed(3) ?? "n/a"} type=${r.type ?? "n/a"}: ${JSON.stringify(r.content ?? r.text ?? r).substring(0, 200)}`).join("\n")}`,
+        );
+
+        const results = pluginConfig.recallTopK
+          ? response.results.slice(0, pluginConfig.recallTopK)
+          : response.results;
+
+        debug(
+          `[Hindsight] After topK (${pluginConfig.recallTopK ?? "unlimited"}): ${results.length} results injected`,
+        );
+
+        // Format memories as a bullet list (text + type + date + occurred window +
+        // [doc:<document_id>], each part present only when the memory carries it)
+        const memoriesFormatted = formatMemories(results);
+
+        const contextMessage = `<hindsight_memory_plugin>
+${pluginConfig.recallPromptPreamble || DEFAULT_RECALL_PROMPT_PREAMBLE}
+Current time - ${formatCurrentTimeForRecall()}
+
+${memoriesFormatted}
+</hindsight_memory_plugin>`;
+
+        debug(
+          `[Hindsight] Auto-recall: Injecting ${results.length} memories from bank ${bankId}`,
+        );
+        log.info(
+          `injecting ${results.length} memories into context (bank: ${bankId})`,
+        );
+        log.trackRecall(bankId, results.length);
+
+        if (pluginConfig.debugPerfTiming) {
+          log.info(
+            formatHookPerf("before_prompt_build", Date.now() - perfHookStart, {
+              recall_main: `${recallElapsedMs}ms`,
+              source: existing ? "reused" : "fresh",
+              results: results.length,
+            }),
+          );
+        }
+
+        // Keep recalled memories outside the system prompt by default so the
+        // provider can reuse its stable prompt prefix across turns. Users who
+        // need system-level memory context can still opt into prepend or append.
+        finishRecall({ state: "completed", resultCount: results.length });
+        const position = pluginConfig.recallInjectionPosition ?? "user";
+        switch (position) {
+          case "append":
+            return { appendSystemContext: contextMessage };
+          case "user":
+            return { prependContext: contextMessage };
+          case "prepend":
+          default:
+            return { prependSystemContext: contextMessage };
+        }
+      } catch (error) {
+        if (!isCurrentRecall()) {
+          cancelRecall();
+        } else {
+          finishRecall({
+            state: "failed",
+            reason:
+              error instanceof DOMException && error.name === "TimeoutError"
+                ? "timeout"
+                : "error",
+          });
+        }
+        if (error instanceof DOMException && error.name === "TimeoutError") {
+          log.warn(
+            `[Hindsight] Auto-recall timed out after ${pluginConfig.recallTimeoutMs ?? DEFAULT_RECALL_TIMEOUT_MS}ms, skipping memory injection`,
+          );
+        } else if (error instanceof Error && error.name === "AbortError") {
+          // An AbortError now has two sources. The deadline is handled above as a
+          // TimeoutError; this branch is reached when the service was stopped or
+          // restarted mid-recall, which is not a timeout — quoting recallTimeoutMs
+          // there reports a deadline that never elapsed, with a number unrelated
+          // to the time actually spent. (#4450)
+          if (recallController?.signal.aborted) {
+            debug(
+              "[Hindsight] Auto-recall cancelled: service stopped, skipping memory injection",
+            );
+          } else {
+            log.warn(
+              `[Hindsight] Auto-recall aborted after ${pluginConfig.recallTimeoutMs ?? DEFAULT_RECALL_TIMEOUT_MS}ms, skipping memory injection`,
+            );
+          }
+        } else {
+          log.error("auto-recall error", error);
+        }
+        return;
+      } finally {
+        recallController?.signal.removeEventListener("abort", cancelRecall);
+      }
+    });
 
     // Shared retain path for `agent_end` (per-turn cadence) and `session_end`
     // (force-flush at session close, bypassing the cadence so short sessions
     // and the un-retained tail of long sessions still land on disk). See #1726.
     const runRetain = async (
-      event: any,
+      event: PluginHookEvent<"agent_end"> | PluginHookEvent<"session_end">,
       ctx: PluginHookAgentContext | undefined,
       retainOptions: {
         force?: boolean;
         hookName: "agent_end" | "session_end";
+        endedTranscript?: PluginHookSessionContext["endedTranscript"];
       } = {
         hookName: "agent_end",
       },
@@ -3977,7 +3929,7 @@ ${memoriesFormatted}
       try {
         // Avoid cross-session contamination: only use context carried by this event.
         const eventSessionKey =
-          typeof event?.sessionKey === "string" ? event.sessionKey : undefined;
+          "sessionKey" in event ? event.sessionKey : undefined;
         const effectiveCtx =
           ctx ||
           (eventSessionKey
@@ -4077,42 +4029,68 @@ ${memoriesFormatted}
         // `event.success === false` is a per-agent-end signal; session_end
         // doesn't carry it and a failed last turn shouldn't block the final
         // flush of preceding successful turns. (#1726)
-        if (!force && event.success === false) {
+        if (!force && "success" in event && event.success === false) {
           debug("[Hindsight Hook] Agent run failed, skipping retention");
           return;
         }
 
-        // Resolved once: `session_end` carries no transcript, so the forced flush
-        // reads it from the file the event points at (#4341). Without this the guard
-        // below ended every session-close flush before it began.
-        let eventMessages =
-          event.context?.sessionEntry?.messages ?? event.messages;
-        if (
-          force &&
-          (!Array.isArray(eventMessages) || eventMessages.length === 0)
-        ) {
-          eventMessages = sessionEndMessagesFromTranscript(event);
-          if (Array.isArray(eventMessages)) {
+        if (pluginConfig.autoRetain === false) return;
+
+        const retainEveryN = pluginConfig.retainEveryNTurns ?? 1;
+        const sessionKey = effectiveCtx?.sessionKey ?? "session";
+        const sessionId =
+          effectiveCtx?.sessionId ??
+          ("sessionId" in event ? event.sessionId : undefined);
+        const fallbackTrackingKey = JSON.stringify([bankId, sessionKey]);
+        const incarnationTrackingKey = sessionId
+          ? JSON.stringify([bankId, sessionKey, sessionId])
+          : fallbackTrackingKey;
+        // Some emitters omit sessionId on agent_end. Capture that fallback at
+        // the end boundary, before a successor reuses the same session key.
+        const sessionTrackingKey =
+          force && !turnCountBySession.has(incarnationTrackingKey)
+            ? fallbackTrackingKey
+            : incarnationTrackingKey;
+        const endedTurnCount = force
+          ? (turnCountBySession.get(sessionTrackingKey) ?? 0)
+          : 0;
+        let eventMessages = "messages" in event ? event.messages : undefined;
+        if (force) {
+          // Finalize the boundary even with no pending tail or reader. Otherwise
+          // a duplicate old end could claim a successor's no-sessionId counter.
+          turnCountBySession.delete(sessionTrackingKey);
+          setCappedMapValue(turnCountBySession, incarnationTrackingKey, 0);
+          const pendingTurns = endedTurnCount;
+          if (retainEveryN <= 1 || pendingTurns % retainEveryN === 0) return;
+
+          // Only the host can provide a stable ended-session boundary. Missing or
+          // unavailable readers are explicit non-results; do not scan sessionFile
+          // or use an ad-hoc messages payload to bypass the host's decision.
+          const reader = retainOptions.endedTranscript;
+          if (!reader?.available) {
             debug(
-              `[Hindsight Hook] session_end: read ${eventMessages.length} messages from ${event.sessionFile}`,
+              `[Hindsight] session_end transcript unavailable: ${reader?.reason ?? "unsupported-host"}`,
             );
+            return;
           }
+          const tail = await reader.readTail({
+            maxMessages: 1000,
+            maxBytes: 2 * 1024 * 1024,
+          });
+          if (!retainLifecycleIsCurrent()) return;
+          eventMessages = [...tail.messages];
+          if (tail.truncated)
+            log.warn("session_end transcript tail truncated by host limits");
         }
 
         if (!Array.isArray(eventMessages) || eventMessages.length === 0) {
           debug("[Hindsight Hook] No messages in event, skipping retention");
           return;
         }
-
-        if (pluginConfig.autoRetain === false) {
-          debug("[Hindsight Hook] autoRetain is disabled, skipping retention");
-          return;
-        }
+        const messages = eventMessages as OpenClawMessage[];
 
         if (!force) {
-          const lastUserMsg = [...eventMessages]
-            .reverse()
-            .find(isUserTurnInitiator);
+          const lastUserMsg = [...messages].reverse().find(isUserTurnInitiator);
           if (lastUserMsg && isInternalOrOperationalTurnMessage(lastUserMsg)) {
             debug(
               "[Hindsight Hook] Skipping retain: current turn is an internal / operational message",
@@ -4122,16 +4100,14 @@ ${memoriesFormatted}
         }
 
         // Chunked retention: skip non-Nth turns and use a sliding window when firing
-        const retainEveryN = pluginConfig.retainEveryNTurns ?? 1;
-        const allMessages = eventMessages;
+        const allMessages = messages;
         let messagesToRetain = allMessages;
         let retainFullWindow = false;
 
         if (retainEveryN > 1) {
-          const sessionTrackingKey = `${bankId}:${effectiveCtx?.sessionKey || "session"}`;
-          // session_end is a flush, not a turn — don't increment the counter.
+          // session_end uses its captured count; successors own separate cadence.
           const turnCount = force
-            ? turnCountBySession.get(sessionTrackingKey) || 0
+            ? endedTurnCount
             : (turnCountBySession.get(sessionTrackingKey) || 0) + 1;
           if (!force) {
             setCappedMapValue(
@@ -4163,9 +4139,6 @@ ${memoriesFormatted}
               windowTurns,
             );
             retainFullWindow = true;
-            // Reset so a subsequent session_end (if the host re-emits) doesn't
-            // re-retain the same window.
-            turnCountBySession.delete(sessionTrackingKey);
             debug(
               `[Hindsight Hook] session_end: forced flush of ${unretainedTurns} un-retained turns (window: ${windowTurns} turns, ${messagesToRetain.length} messages)`,
             );
@@ -4193,13 +4166,6 @@ ${memoriesFormatted}
               `[Hindsight Hook] Turn ${turnCount}: chunked retain firing (window: ${windowTurns} turns, ${messagesToRetain.length} messages)`,
             );
           }
-        } else if (force) {
-          // retainEveryN === 1 means every agent_end already retained — the
-          // session_end flush would only duplicate work. (#1726)
-          debug(
-            "[Hindsight Hook] session_end: retainEveryNTurns=1, nothing to flush",
-          );
-          return;
         }
 
         const inlineRetainTags = normalizeRetainTags(
@@ -4274,7 +4240,7 @@ ${memoriesFormatted}
 
         // Only the service owner sends. Scoped producers leave delivery to the
         // Gateway timer, including when health checks or initialization fail.
-        if (serviceAbortController === retainController) {
+        if (!force && serviceAbortController === retainController) {
           await flushRetainQueue(
             undefined,
             undefined,
@@ -4300,15 +4266,19 @@ ${memoriesFormatted}
     };
 
     // Hook signature: (event, ctx) where event has {messages, success, error?, durationMs?}
-    api.on("agent_end", async (event: any, ctx?: PluginHookAgentContext) => {
+    api.on("agent_end", async (event, ctx) => {
       await runRetain(event, ctx, { hookName: "agent_end" });
     });
 
     // session_end fires once per OpenClaw session close. We force-flush so
     // short conversations (fewer turns than `retainEveryNTurns`) and the
     // un-retained tail of long conversations are not silently dropped. (#1726)
-    api.on("session_end", async (event: any, ctx?: PluginHookAgentContext) => {
-      await runRetain(event, ctx, { hookName: "session_end", force: true });
+    api.on("session_end", async (event, ctx) => {
+      await runRetain(event, ctx, {
+        hookName: "session_end",
+        force: true,
+        endedTranscript: ctx.endedTranscript,
+      });
     });
     debug("[Hindsight] Hooks registered");
     log.info("agent hooks registered");
@@ -4325,9 +4295,9 @@ ${memoriesFormatted}
         const apiToken = pluginConfig.hindsightApiToken || undefined;
 
         // Factory: called per session with agent context, returns tools scoped to that bank.
-        // Identity is resolved the same way as auto-recall/retain so PluginToolContext
-        // (which lacks senderId/messageProvider) still routes to the per-user bank.
-        const factory = (ctx: PluginToolContext) => {
+        // Use host-supplied tool identity and the shared hook identity cache so
+        // explicit tools and automatic recall resolve the same per-user bank.
+        const factory = (ctx: OpenClawPluginToolContext) => {
           const resolution = resolveBankIdForKnowledgeTools(ctx, pluginConfig);
           const rawTools = createKnowledgeTools({
             apiUrl,
@@ -4336,7 +4306,7 @@ ${memoriesFormatted}
           });
           const rawToolsByName = new Map(rawTools.map((t) => [t.name, t]));
 
-          const pageTool = {
+          const pageTool: AnyAgentTool = {
             name: KNOWLEDGE_PAGE_TOOL_DEFINITION.name,
             label: KNOWLEDGE_PAGE_TOOL_DEFINITION.label,
             description: KNOWLEDGE_PAGE_TOOL_DEFINITION.description,
@@ -4350,17 +4320,17 @@ ${memoriesFormatted}
               }
               const config = currentPluginConfig || pluginConfig;
               await ensureBankDefaultsApplied(resolution.bankId, config);
-              const result = (await executeKnowledgePageAction(
+              const result = await executeKnowledgePageAction(
                 rawToolsByName,
                 params,
-              )) as { content?: unknown };
+              );
               return { ...result, details: knowledgeToolDetails(result) };
             },
           };
 
           const memoryTools = rawTools
             .filter((t) => KNOWLEDGE_TOOL_RENAMES[t.name])
-            .map((t) => {
+            .map((t): AnyAgentTool => {
               const override = KNOWLEDGE_TOOL_RENAMES[t.name]!;
               return {
                 name: override.name,
@@ -4404,6 +4374,14 @@ ${memoriesFormatted}
     throw error;
   }
 }
+
+export default definePluginEntry({
+  id: "hindsight-memory",
+  name: "Hindsight Memory",
+  description:
+    "Biomimetic long-term memory with automatic recall and retention",
+  register: registerPlugin,
+});
 
 // Export client getter for tools
 

@@ -1,11 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "fs";
+import { existsSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { RetainQueue } from "./retain-queue.js";
@@ -13,9 +7,11 @@ import registerPlugin, {
   type AsyncRetainOperationIdCapability,
 } from "./index.js";
 import type {
-  MoltbotPluginAPI,
+  OpenClawPluginApi,
   PluginHookAgentContext,
-  ServiceConfig,
+  PluginHookHandler,
+  PluginHookSessionContext,
+  OpenClawPluginService,
 } from "./types.js";
 
 const tempDirs: string[] = [];
@@ -33,50 +29,35 @@ function makeApi(
   flushIntervalMs: number,
   extraConfig: Record<string, unknown> = {},
 ): {
-  api: MoltbotPluginAPI;
-  service: () => ServiceConfig;
-  agentEnd: () => (
-    event: unknown,
-    ctx?: PluginHookAgentContext,
-  ) => Promise<void>;
-  sessionEnd: () => (
-    event: unknown,
-    ctx?: PluginHookAgentContext,
-  ) => Promise<void>;
+  api: OpenClawPluginApi;
+  service: () => OpenClawPluginService;
+  agentEnd: () => PluginHookHandler<"agent_end">;
+  sessionEnd: () => PluginHookHandler<"session_end">;
 } {
-  let registeredService: ServiceConfig | undefined;
-  let agentEndHandler:
-    | ((event: unknown, ctx?: PluginHookAgentContext) => void | Promise<void>)
-    | undefined;
-  let sessionEndHandler:
-    | ((event: unknown, ctx?: PluginHookAgentContext) => void | Promise<void>)
-    | undefined;
-  const api: MoltbotPluginAPI = {
-    config: {
-      plugins: {
-        entries: {
-          "hindsight-memory": {
-            config: {
-              hindsightApiUrl: "https://hindsight.test",
-              retainQueuePath: queuePath,
-              retainQueueFlushIntervalMs: flushIntervalMs,
-              dynamicBankId: false,
-              bankId: "integration-bank",
-              autoRecall: false,
-              autoRetain: true,
-              logLevel: "off",
-              ...extraConfig,
-            },
-          },
-        },
-      },
+  let registeredService: OpenClawPluginService | undefined;
+  let agentEndHandler: PluginHookHandler<"agent_end"> | undefined;
+  let sessionEndHandler: PluginHookHandler<"session_end"> | undefined;
+  const api: OpenClawPluginApi = {
+    config: {},
+    pluginConfig: {
+      hindsightApiUrl: "https://hindsight.test",
+      retainQueuePath: queuePath,
+      retainQueueFlushIntervalMs: flushIntervalMs,
+      dynamicBankId: false,
+      bankId: "integration-bank",
+      autoRecall: false,
+      autoRetain: true,
+      logLevel: "off",
+      ...extraConfig,
     },
     registerService(config) {
       registeredService = config;
     },
     on(event, handler) {
-      if (event === "agent_end") agentEndHandler = handler;
-      if (event === "session_end") sessionEndHandler = handler;
+      if (event === "agent_end")
+        agentEndHandler = handler as PluginHookHandler<"agent_end">;
+      if (event === "session_end")
+        sessionEndHandler = handler as PluginHookHandler<"session_end">;
     },
     logger: {
       info: () => undefined,
@@ -84,7 +65,7 @@ function makeApi(
       error: () => undefined,
     },
   };
-  registerPlugin(api);
+  registerPlugin.register!(api);
   return {
     api,
     service: () => {
@@ -93,15 +74,11 @@ function makeApi(
     },
     agentEnd: () => {
       if (!agentEndHandler) throw new Error("agent_end not registered");
-      return async (event, ctx) => {
-        await agentEndHandler?.(event, ctx);
-      };
+      return agentEndHandler;
     },
     sessionEnd: () => {
       if (!sessionEndHandler) throw new Error("session_end not registered");
-      return async (event, ctx) => {
-        await sessionEndHandler?.(event, ctx);
-      };
+      return sessionEndHandler;
     },
   };
 }
@@ -387,28 +364,6 @@ describe("session_end flushes the un-retained tail (#4341)", () => {
   // wiring, which is where #1726's flush died: the hook fired, the guard above it
   // saw a payload with no `messages`, and the tail was dropped in silence. Only an
   // end-to-end retain proves the forced flush now reaches the server.
-  function writeTranscript(
-    sessionId: string,
-    turns: Array<[string, string]>,
-  ): string {
-    const dir = mkdtempSync(join(tmpdir(), "hindsight-session-end-"));
-    tempDirs.push(dir);
-    const file = join(dir, `${sessionId}.jsonl`);
-    const lines: unknown[] = [
-      { type: "session", id: sessionId, timestamp: "2026-09-12T20:00:00Z" },
-      ...turns.flatMap(([user, assistant]) => [
-        { type: "message", message: { role: "user", content: user } },
-        { type: "message", message: { role: "assistant", content: assistant } },
-      ]),
-    ];
-    writeFileSync(
-      file,
-      lines.map((line) => JSON.stringify(line)).join("\n") + "\n",
-      "utf8",
-    );
-    return file;
-  }
-
   it("retains the turns after the last cadence boundary when the session closes", async () => {
     const queuePath = makeQueuePath();
     const server = installFakeServer("supported");
@@ -453,12 +408,17 @@ describe("session_end flushes the un-retained tail (#4341)", () => {
     );
     expect(server.retainBodies).toHaveLength(0);
 
-    // The real payload: ids, counts and a sessionFile — no messages array, and a
-    // context holding only ids (OpenClaw's buildSessionEndHookPayload()).
-    const sessionFile = writeTranscript("sess-1", [
-      ["First turn.", "Noted."],
-      ["The tail nobody retained.", "Understood."],
-    ]);
+    // The host reader preserves the ended-session boundary without a JSONL file.
+    const readTail = vi.fn().mockResolvedValue({
+      messages: [
+        { role: "user", content: "First turn." },
+        { role: "assistant", content: "Noted." },
+        { role: "user", content: "The tail nobody retained." },
+        { role: "assistant", content: "Understood." },
+      ],
+      totalMessages: 4,
+      truncated: false,
+    });
     await api.sessionEnd()(
       {
         sessionId: "sess-1",
@@ -466,20 +426,27 @@ describe("session_end flushes the un-retained tail (#4341)", () => {
         messageCount: 4,
         durationMs: 12_000,
         reason: "reset",
-        sessionFile,
-        context: { sessionId: "sess-1", sessionKey, agentId: "main" },
       },
-      ctx,
+      {
+        sessionId: "sess-1",
+        sessionKey,
+        agentId: "main",
+        endedTranscript: { available: true, readTail },
+      },
     );
-
-    await vi.waitFor(() => expect(server.retainBodies).toHaveLength(1));
+    expect(readTail).toHaveBeenCalledOnce();
+    // session_end persists first; the background service delivers after it returns.
+    expect(readQueue(queuePath)).toHaveLength(1);
+    await vi.waitFor(() => expect(server.retainBodies).toHaveLength(1), {
+      timeout: 2500,
+    });
     expect(JSON.stringify(server.retainBodies[0])).toContain(
       "The tail nobody retained.",
     );
     await service.stop();
   });
 
-  it("skips the flush when the event points at no readable transcript", async () => {
+  it("skips the flush when the host reports no transcript", async () => {
     const queuePath = makeQueuePath();
     const server = installFakeServer("supported");
 
@@ -517,9 +484,13 @@ describe("session_end flushes the un-retained tail (#4341)", () => {
         messageCount: 2,
         reason: "shutdown",
         sessionFile: join(tmpdir(), "hindsight-missing", "sess-2.jsonl"),
-        context: { sessionId: "sess-2", sessionKey, agentId: "main" },
       },
-      ctx,
+      {
+        sessionId: "sess-2",
+        sessionKey,
+        agentId: "main",
+        endedTranscript: { available: false, reason: "unsupported-source" },
+      },
     );
 
     expect(server.retainBodies).toHaveLength(0);

@@ -17,44 +17,55 @@ alongside it. This README does not assume the fork is published to npm.
 
 ## Quick Start
 
-Requires Node.js 22 or newer and an existing OpenClaw installation.
+Requires OpenClaw `2026.10.4`, Node.js `>=24.16.0 <25 || >=26.1.0`,
+and `pnpm@12.8.1` (matching `package.json`).
+
+Build and check the package:
 
 ```bash
 git clone https://github.com/ani6439walc/openclaw-plugin-hindsight-memory.git
 cd openclaw-plugin-hindsight-memory
-npm ci
-npm run typecheck
-npm test
-npm run build
-npm pack
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm build
+npm pack --pack-destination /tmp
+```
 
-# Install the archive produced above (adjust the version after updates).
-openclaw plugins install ./hindsight-memory-2026.10.2.tgz
+Installing or replacing the plugin is a separate operator action. Save your
+OpenClaw configuration first, then install the archive produced above (adjust the
+version after updates):
+
+```bash
+openclaw plugins install npm-pack:/tmp/hindsight-memory-2026.10.4.tgz --force
 
 # Optional: configure a new installation using this checkout's setup wizard.
 node dist/setup.js
 
-openclaw gateway
+openclaw plugins inspect hindsight-memory --runtime --json
 ```
 
-For an existing official installation, first save your OpenClaw configuration and
-stop the gateway. On OpenClaw versions supporting `plugins install --force`, use
-`openclaw plugins install --force ./hindsight-memory-2026.10.2.tgz`
-to replace the existing plugin. Check `openclaw plugins install --help` for your
-installed version, verify `plugins.entries.hindsight-memory.config`, then restart
-the gateway. Existing installations do not need to rerun the setup wizard. Installing
-or replacing the plugin is a separate operator action; building this repository
-does not change a running OpenClaw installation.
+`--force` replaces an existing installation of the same plugin. Existing
+installations do not need to rerun the setup wizard. Verify
+`plugins.entries.hindsight-memory.config` and the hook permissions below before
+using the plugin. The `npm-pack:` install path exercises OpenClaw's managed
+runtime dependency installation, as recommended by the
+[official plugin guide](https://docs.openclaw.ai/plugins/building-plugins).
 
-This fork targets OpenClaw `2026.9.6` (declared as a peer dependency), with Node
-`>=24.16.0 <25 || >=26.1.0`. Recall progress uses the `plugin:hindsight-memory`
-agent event stream through `emitAgentEvent` from
-`openclaw/plugin-sdk/agent-harness-runtime`. A compatible discord-activity
-version can display the recall status, elapsed time, and result count. Events do
-not include the query or recalled memory content; a reporting failure must not
-prevent recall.
+For an existing checkout, `pnpm build` only rebuilds `dist/`. After deliberately
+installing/replacing the package or updating the loaded checkout, reload its code
+with `openclaw plugins reload hindsight-memory`. Building and testing alone do
+not reload plugin code or restart the Gateway. With the default hybrid reload
+mode, plugin configuration and hook-policy changes replace the plugin runtime
+automatically.
 
-`hindsight-memory-setup` walks you through picking one of three modes:
+Recall progress uses the `plugin:hindsight-memory` agent event stream through
+`emitAgentEvent` from `openclaw/plugin-sdk/agent-harness-runtime`. A compatible
+discord-activity version can display the recall status, elapsed time, and result
+count. Events do not include the query or recalled memory content; a reporting
+failure must not prevent recall.
+
+`node dist/setup.js` walks you through picking one of three modes:
 
 - **Cloud** — managed Hindsight. Paste your cloud API token, done.
 - **External API** — your own running Hindsight deployment. Prompts for the URL and optional token.
@@ -136,7 +147,7 @@ to confirm the new shape parses cleanly.
 
 ## Features
 
-- **Auto-capture** and **auto-recall** of memories each turn, injected into system prompt space so recalled memories stay out of the visible chat transcript
+- **Auto-capture** and **auto-recall** of memories each turn, injected into model context so recalled memories stay out of the visible chat transcript
 - **Memory isolation** — configurable per agent, channel, user, or provider via `dynamicBankGranularity`
 - **Historical backfill CLI** — import prior OpenClaw session history into Hindsight using the active plugin bank-routing config by default
 - **Retention controls** — choose which message roles to retain, toggle auto-retain on/off, and stamp retained documents with consistent tags/source metadata
@@ -299,7 +310,7 @@ Glob syntax:
 
 Auto-retain saves each eligible transcript before any API initialization or network request. Agent-scoped plugin instances enqueue only; the Gateway service delivers queued items on its existing timer (60 seconds by default, configurable with `retainQueueFlushIntervalMs`). A running service can also drain immediately after a turn.
 
-`retainQueuePath` remains the queue base path, defaulting to `~/.openclaw/plugins/hindsight/retain-queue.jsonl`. New items are JSON files with POSIX permissions `0600` in the adjacent `<retainQueuePath>.d` directory. On Windows, access is governed by directory ACLs; file contents are synced, while directory fsync is unavailable. Existing JSONL entries are migrated, and the original file is preserved as `.migrated` for recovery. Stop older plugin versions before upgrading so they cannot continue writing the legacy JSONL.
+`retainQueuePath` remains the queue base path, defaulting to `~/.openclaw/plugins/hindsight-memory/retain-queue.jsonl`. New items are JSON files with POSIX permissions `0600` in the adjacent `<retainQueuePath>.d` directory. On Windows, access is governed by directory ACLs; file contents are synced, while directory fsync is unavailable. Existing JSONL entries are migrated, and the original file is preserved as `.migrated` for recovery. Stop older plugin versions before upgrading so they cannot continue writing the legacy JSONL.
 
 Each worker cycle sorts a filename snapshot and asynchronously reads only the candidates needed for up to 50 deliverable items; expired or corrupt candidates are skipped. Corrupt files are preserved with a `.corrupt` suffix and excluded from future scans. Older hash-only outbox filenames are normalized once, asynchronously, before batching to preserve FIFO order. The worker removes an item only after the API accepts it. Initialization failures, request failures, and service retirement leave it available for the next retry or restart. The same operation ID is retained across attempts; servers supporting operation IDs can deduplicate a lost acknowledgement. Older servers cannot guarantee duplicate-free replay. Delivery means the asynchronous retain request was accepted, not that fact extraction has completed.
 
@@ -313,16 +324,62 @@ Retained documents use stable session-scoped IDs derived from the OpenClaw `sess
 
 ## OpenClaw compatibility
 
-Version 0.12.0 and later work with **OpenClaw 2026.7.x through 2026.9.x**. The plugin reads both the old and the new conversation-metadata labels, so plugin and OpenClaw versions do not need to match.
+This fork builds against the official OpenClaw `2026.10.4` SDK and declares that
+exact peer dependency. Older hosts are not supported by this release.
 
-**On OpenClaw 2026.8.1 or later, use 0.12.0 or later.** 2026.8.1 changed how OpenClaw labels the metadata it attaches to each message; earlier plugin versions no longer recognised it, so turns were skipped with `missing stable sender identity`, routing IDs were stored as conversation content, and automatic recall could search using that metadata instead of your message.
+The entry uses `definePluginEntry` from `openclaw/plugin-sdk/plugin-entry` and
+registers typed hooks with `api.on(...)`. Plugin settings come from the host's
+resolved `api.pluginConfig`; SDK imports use focused public subpaths.
 
-Two expected (non-error) messages on 2026.8.1+:
+- `before_prompt_build` uses `currentUserMessage` when supplied. An explicit
+  empty string skips recall, including image-only requests; it never falls back
+  to history. The prepared prompt is used only when the harness omits the field.
+- `agent_end` captures turns at the configured retention cadence. `session_end`
+  flushes pending turns through `ctx.endedTranscript.readTail(...)`, bounded to
+  1,000 messages and 2 MiB, while the handler is active. If the reader is absent or unavailable, the flush is
+  skipped; the plugin does not read a session JSONL file as a fallback. The host
+  may truncate the tail to its limits, so very large pending windows can be
+  incomplete. Shutdown/restart gives all session-end handlers a shared two-second
+  drain budget. Pending retains are persisted to the local outbox before any
+  delivery attempt to Hindsight.
+- Recall progress keeps the public SDK `emitAgentEvent` import because the
+  registration API's event facade disallows global side effects in agent-scoped
+  prompt hooks.
 
-- Install prints `Exclusive slot "memory" switched from "memory-core" to "hindsight-memory"` — correct; Hindsight replaces OpenClaw's built-in memory.
-- `openclaw plugins doctor` then reports `memory-core` is not selected for the memory slot — that is OpenClaw noting its built-in memory stepped aside.
+### Hook permissions
 
-Upgrading from 0.11.1 or earlier: installs could fail with `npm error Cannot read properties of null (reading 'edgesOut')`. That was a packaging problem in the plugin, fixed in 0.12.0 — retry with the new version.
+As a non-bundled plugin, automatic recall and retention require explicit
+conversation access. Merge these keys into the existing entry in
+`~/.openclaw/openclaw.json`; `hooks` is alongside `config`:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "hindsight-memory": {
+        "enabled": true,
+        "hooks": {
+          "allowConversationAccess": true,
+          "allowPromptInjection": true
+        }
+      }
+    }
+  }
+}
+```
+
+`allowConversationAccess` admits conversation hooks, including
+`before_prompt_build` and `agent_end`, and grants access to the bounded ended
+transcript when the host has a safe source. `session_end` itself can still run as
+a metadata-only hook without the grant. `allowPromptInjection` defaults to
+allowed; explicitly setting it to `false` blocks `before_prompt_build`, disabling
+automatic recall injection. It does not grant conversation access. See the
+[official hook permissions](https://docs.openclaw.ai/plugins/hooks#permissions-and-scope)
+and [session lifecycle contract](https://docs.openclaw.ai/plugins/hooks/reference#hook-catalog).
+
+The memory-slot switch from `memory-core` to `hindsight-memory` is expected:
+Hindsight replaces OpenClaw's built-in memory plugin. A doctor report that
+`memory-core` is not selected for that slot is therefore expected as well.
 
 ## Documentation
 

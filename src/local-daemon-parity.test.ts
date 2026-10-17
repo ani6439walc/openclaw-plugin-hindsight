@@ -30,7 +30,7 @@ const plugin = (await import("./index.js")).default;
 const { isAppendModeSupported, getDocumentIdBootToken } =
   await import("./index.js");
 
-import type { MoltbotPluginAPI } from "./types.js";
+import type { OpenClawPluginApi } from "./types.js";
 
 interface StartedService {
   start(): Promise<void>;
@@ -38,14 +38,15 @@ interface StartedService {
 }
 
 function makeApi(config: Record<string, unknown>): {
-  api: MoltbotPluginAPI;
+  api: OpenClawPluginApi;
   service: () => StartedService;
   infoLines: string[];
 } {
   let service: StartedService | undefined;
   const infoLines: string[] = [];
   const api = {
-    config: { plugins: { entries: { "hindsight-memory": { config } } } },
+    config: {},
+    pluginConfig: config,
     registerService: (svc: StartedService) => {
       service = svc;
     },
@@ -55,7 +56,7 @@ function makeApi(config: Record<string, unknown>): {
       warn: () => undefined,
       error: () => undefined,
     },
-  } as unknown as MoltbotPluginAPI;
+  } as unknown as OpenClawPluginApi;
   return {
     api,
     service: () => {
@@ -103,7 +104,7 @@ describe("local-daemon mode parity (#3686)", () => {
       retainQueuePath: join(tempDir, "queue.jsonl"),
     });
 
-    plugin(api);
+    plugin.register!(api);
     await service().start();
     try {
       expect(daemonStart).toHaveBeenCalled();
@@ -126,7 +127,7 @@ describe("local-daemon mode parity (#3686)", () => {
       retainQueuePath: join(tempDir, "queue.jsonl"),
     });
 
-    plugin(api);
+    plugin.register!(api);
     await service().start();
     try {
       const probed = fetchMock.mock.calls.map((call) => String(call[0]));
@@ -172,7 +173,7 @@ describe("local-daemon mode parity (#3686)", () => {
       retainQueuePath: queuePath,
     });
 
-    plugin(api);
+    plugin.register!(api);
     await service().start();
     try {
       expect(

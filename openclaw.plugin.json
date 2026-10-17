@@ -2,6 +2,8 @@
   "id": "hindsight-memory",
   "name": "Hindsight Memory",
   "kind": "memory",
+  "categories": ["memory"],
+  "activation": { "onStartup": true },
   "configContracts": {
     "secretInputs": {
       "paths": [
@@ -603,7 +605,7 @@
     },
     "retainQueuePath": {
       "label": "Retain Queue File Path",
-      "placeholder": "~/.openclaw/plugins/hindsight/retain-queue.jsonl"
+      "placeholder": "~/.openclaw/plugins/hindsight-memory/retain-queue.jsonl"
     },
     "retainQueueMaxAgeMs": {
       "label": "Retain Queue Max Age (ms)",

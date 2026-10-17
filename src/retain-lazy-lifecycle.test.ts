@@ -2,13 +2,17 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { MoltbotPluginAPI, ServiceConfig } from "./types.js";
+import type {
+  OpenClawPluginApi,
+  OpenClawPluginService,
+  PluginHookHandler,
+} from "./types.js";
 import { RetainQueue } from "./retain-queue.js";
 
 let directory: string;
 let queuePath: string;
-let service: ServiceConfig;
-let hook: Parameters<MoltbotPluginAPI["on"]>[1];
+let service: OpenClawPluginService;
+let hook: PluginHookHandler<"agent_end">;
 let flush: typeof import("./index.js").flushRetainQueue;
 let Client: typeof import("@vectorize-io/hindsight-client").HindsightClient;
 const ctx = {
@@ -49,23 +53,16 @@ beforeEach(async () => {
         ),
     ),
   );
-  module.default({
-    config: {
-      plugins: {
-        entries: {
-          "hindsight-memory": {
-            config: {
-              hindsightApiUrl: "http://localhost:8888",
-              agentBankMap: { main: "test-bank" },
-              dynamicBankId: true,
-              autoRetain: true,
-              retainEveryNTurns: 1,
-              retainQueuePath: queuePath,
-              logLevel: "off",
-            },
-          },
-        },
-      },
+  module.default.register!({
+    config: {},
+    pluginConfig: {
+      hindsightApiUrl: "http://localhost:8888",
+      agentBankMap: { main: "test-bank" },
+      dynamicBankId: true,
+      autoRetain: true,
+      retainEveryNTurns: 1,
+      retainQueuePath: queuePath,
+      logLevel: "off",
     },
     registerService: (registered) => {
       service = registered;
@@ -171,26 +168,19 @@ it("skips retention for unclassified settlement text in default JSON mode", asyn
 });
 
 it("omits provenance-skipped internal turns from subsequent chunked-retain windows while preserving normal turns", async () => {
-  let chunkedHook: Parameters<MoltbotPluginAPI["on"]>[1];
+  let chunkedHook: PluginHookHandler<"agent_end">;
   const module = await import("./index.js");
-  module.default({
-    config: {
-      plugins: {
-        entries: {
-          "hindsight-memory": {
-            config: {
-              hindsightApiUrl: "http://localhost:8888",
-              agentBankMap: { main: "test-bank" },
-              dynamicBankId: true,
-              autoRetain: true,
-              retainEveryNTurns: 2,
-              retainOverlapTurns: 0,
-              retainQueuePath: queuePath,
-              logLevel: "off",
-            },
-          },
-        },
-      },
+  module.default.register!({
+    config: {},
+    pluginConfig: {
+      hindsightApiUrl: "http://localhost:8888",
+      agentBankMap: { main: "test-bank" },
+      dynamicBankId: true,
+      autoRetain: true,
+      retainEveryNTurns: 2,
+      retainOverlapTurns: 0,
+      retainQueuePath: queuePath,
+      logLevel: "off",
     },
     on: (event, handler) => {
       if (event === "agent_end") chunkedHook = handler;

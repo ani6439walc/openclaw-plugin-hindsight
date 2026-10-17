@@ -36,6 +36,13 @@ describe("openclaw.plugin.json", () => {
     expect(manifest.configSchema.properties).toBeDefined();
   });
 
+  it("declares intentional memory startup activation", () => {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    expect(manifest.kind).toBe("memory");
+    expect(manifest.categories).toEqual(["memory"]);
+    expect(manifest.activation).toEqual({ onStartup: true });
+  });
+
   it("defaults recalled memories to user context", () => {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
     expect(
